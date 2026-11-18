@@ -1,12 +1,26 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(express.static(__dirname));
 app.use(express.json());
 
+// Отдаем главную страницу
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Автоматически отдаем фоновую картинку (подхватит любое расширение)
+app.get('/background-image', (req, res) => {
+    const names = ['bg.png', 'bg.jpg', 'bg.jpeg', 'bg.webp'];
+    for (const name of names) {
+        const fullPath = path.join(__dirname, name);
+        if (fs.existsSync(fullPath)) {
+            return res.sendFile(fullPath);
+        }
+    }
+    res.status(404).end();
 });
 
 const users = new Map();
