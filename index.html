@@ -8,18 +8,32 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f1115; color: #fff; display: flex;
-            justify-content: center; align-items: center; min-height: 100vh; padding: 15px;
+            background: url('/bg.png') no-repeat center center fixed,
+                        url('/bg.jpg') no-repeat center center fixed,
+                        linear-gradient(135deg, #2d1b36 0%, #5c3a6b 50%, #1a1221 100%);
+            background-size: cover;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 15px;
         }
         .app {
-            background: #181b22; width: 100%; max-width: 460px; border-radius: 20px;
-            padding: 25px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); border: 1px solid #262a35;
+            background: rgba(24, 27, 34, 0.80);
+            backdrop-filter: blur(10px);
+            width: 100%;
+            max-width: 460px;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            border: 1px solid rgba(255, 255, 255, 0.14);
         }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .logo { font-size: 1.5rem; font-weight: 800; color: #00e676; letter-spacing: 1px; }
+        .logo { font-size: 1.5rem; font-weight: 800; color: #ff6ec7; letter-spacing: 1px; }
         .online-badge {
-            background: #232834; padding: 6px 12px; border-radius: 20px;
-            font-size: 0.85rem; color: #a0aab8; display: flex; align-items: center;
+            background: rgba(35, 40, 52, 0.85); padding: 6px 12px; border-radius: 20px;
+            font-size: 0.85rem; color: #e0d0e8; display: flex; align-items: center;
         }
         .online-dot {
             display: inline-block; width: 8px; height: 8px; background: #ff5252;
@@ -27,34 +41,34 @@
         }
         .online-dot.connected { background: #00e676; }
         .voice-box {
-            background: #12141a; border-radius: 16px; padding: 25px 15px;
-            text-align: center; margin-bottom: 15px; border: 1px solid #222630;
+            background: rgba(18, 20, 26, 0.72); border-radius: 16px; padding: 25px 15px;
+            text-align: center; margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.08);
         }
         .avatar {
-            width: 72px; height: 72px; border-radius: 50%; background: #232834;
+            width: 72px; height: 72px; border-radius: 50%; background: #2b2334;
             margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem;
         }
-        .avatar.speaking { box-shadow: 0 0 0 6px rgba(0, 230, 118, 0.35); background: #1c382c; }
-        #status { font-size: 1rem; color: #cfd8e3; font-weight: 500; }
+        .avatar.speaking { box-shadow: 0 0 0 6px rgba(255, 110, 199, 0.45); background: #4a2342; }
+        #status { font-size: 1rem; color: #f0e6f5; font-weight: 500; }
         .chat-box {
-            background: #12141a; border-radius: 14px; height: 180px; display: flex;
-            flex-direction: column; margin-bottom: 15px; border: 1px solid #222630; overflow: hidden;
+            background: rgba(18, 20, 26, 0.72); border-radius: 14px; height: 180px; display: flex;
+            flex-direction: column; margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.08); overflow: hidden;
         }
         #messages { flex: 1; padding: 12px; overflow-y: auto; font-size: 0.9rem; display: flex; flex-direction: column; gap: 8px; }
         .msg { padding: 8px 12px; border-radius: 10px; max-width: 82%; word-wrap: break-word; }
-        .msg.me { background: #00e676; color: #000; align-self: flex-end; font-weight: 500; }
-        .msg.partner { background: #262b38; color: #fff; align-self: flex-start; }
-        .msg.sys { background: transparent; color: #788292; align-self: center; font-size: 0.8rem; text-align: center; }
-        .chat-input { display: flex; border-top: 1px solid #222630; }
+        .msg.me { background: #ff6ec7; color: #000; align-self: flex-end; font-weight: 600; }
+        .msg.partner { background: #2c2538; color: #fff; align-self: flex-start; }
+        .msg.sys { background: transparent; color: #a89ab0; align-self: center; font-size: 0.8rem; text-align: center; }
+        .chat-input { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.08); }
         .chat-input input { flex: 1; background: transparent; border: none; padding: 12px; color: #fff; outline: none; font-size: 0.9rem; }
-        .chat-input button { background: transparent; border: none; color: #00e676; font-weight: bold; padding: 0 16px; cursor: pointer; }
+        .chat-input button { background: transparent; border: none; color: #ff6ec7; font-weight: bold; padding: 0 16px; cursor: pointer; }
         .chat-input button:disabled { color: #555; cursor: not-allowed; }
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .btn { padding: 14px; border: none; border-radius: 12px; font-size: 1rem; font-weight: 700; cursor: pointer; }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        #btnNext { background: #00e676; color: #000; }
+        #btnNext { background: #ff6ec7; color: #000; }
         #btnStop { background: #ff5252; color: #fff; }
-        #btnMute { grid-column: span 2; background: #262b38; color: #fff; font-weight: 600; }
+        #btnMute { grid-column: span 2; background: #2c2538; color: #fff; font-weight: 600; }
         #btnMute.muted { background: #ff9800; color: #000; }
     </style>
 </head>
@@ -207,22 +221,21 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    function setChatEnabled(enabled) {
-        msgInput.disabled = !enabled;
-        btnSend.disabled = !enabled;
-        if (!enabled) msgInput.value = '';
-    }
-
-    async function initAudio() {
-        if (!localStream) {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                btnMute.disabled = false;
-            } catch (err) {
-                statusEl.textContent = 'Разрешите доступ к микрофону!';
-                throw err;
-            }
-        }
+function setChatEnabled(enabled) {
+msgInput.disabled = !enabled;
+btnSend.disabled = !enabled;
+if (!enabled) msgInput.value = '';
+}
+async function initAudio() {
+if (!localStream) {
+try {
+localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+btnMute.disabled = false;
+} catch (err) {
+statusEl.textContent = 'Разрешите доступ к микрофону!';
+throw err;
+}
+}
 }
 function createPeerConnection() {
 peerConnection = new RTCPeerConnection(rtcConfig);
