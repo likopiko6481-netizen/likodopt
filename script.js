@@ -1,5 +1,5 @@
 /*
-  Likodopt — клиентский скрипт голосовой чат-рулетки
+  Likodopt — клиентский скрипт под ваш server.js
 */
 console.log("Likodopt загружен 🎙️");
 
@@ -53,6 +53,7 @@ function initPeer() {
     host: window.location.hostname,
     port: window.location.port || (isHttps ? 443 : 80),
     path: '/peerjs',
+    key: 'peerjs',
     secure: isHttps,
     config: {
       iceServers: [
@@ -104,10 +105,11 @@ function initPeer() {
 async function pingServer() {
   if (!myPeerId) return;
   try {
-    const res = await fetch('/ping?peerId=' + encodeURIComponent(myPeerId));
+    await fetch('/ping?peerId=' + encodeURIComponent(myPeerId));
+    const res = await fetch('/online-count');
     const data = await res.json();
-    if (data.online !== undefined && onlineCountEl) {
-      onlineCountEl.textContent = data.online;
+    if (data.count !== undefined && onlineCountEl) {
+      onlineCountEl.textContent = data.count;
     }
   } catch (e) {}
 }
@@ -127,9 +129,6 @@ async function initMic() {
 function stopSearchLoop() {
   isSearching = false;
   clearInterval(searchTimer);
-  if (myPeerId) {
-    fetch('/stop-search?myId=' + encodeURIComponent(myPeerId)).catch(() => {});
-  }
 }
 
 function closeCall() {
@@ -190,9 +189,6 @@ async function findPartnerStep() {
   try {
     const res = await fetch('/find-partner?myId=' + encodeURIComponent(myPeerId));
     const data = await res.json();
-    if (data.online !== undefined && onlineCountEl) {
-      onlineCountEl.textContent = data.online;
-    }
 
     if (data.partnerId && isSearching) {
       stopSearchLoop();
