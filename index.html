@@ -68,7 +68,7 @@
 
     <div class="voice-box">
         <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Подключение...</div>
+        <div id="status">Запрос к серверу...</div>
     </div>
 
     <div class="chat-box">
@@ -115,7 +115,19 @@
         ]
     };
 
-    async function api(path, body = {}) {
+    async function apiGet(path, params = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const query = new URLSearchParams({ id: myId, t: Date.now(), ...params }).toString();
+        try {
+            const res = await fetch(path + '?' + query, { signal: controller.signal });
+            return await res.json();
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function apiPost(path, body = {}) {
         const res = await fetch(path, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -126,7 +138,7 @@
 
     async function pollLoop() {
         try {
-            const data = await api('/api/poll');
+            const data = await apiGet('/api/poll');
             if (!isConnected) {
                 isConnected = true;
                 connDot.classList.add('connected');
@@ -140,9 +152,11 @@
         } catch (e) {
             isConnected = false;
             connDot.classList.remove('connected');
-            statusEl.textContent = 'Ошибка сети: ' + e.message;
+            statusEl.textContent = e.name === 'AbortError'
+                ? 'Сервер не отвечает (включите VPN)'
+                : 'Ошибка связи: ' + e.message;
         }
-        setTimeout(pollLoop, 800);
+        setTimeout(pollLoop, 1000);
     }
 
     async function handleEvent(data) {
@@ -159,7 +173,7 @@
             if (data.initiator) {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
-                await api('/api/signal', { signal: { type: 'offer', offer } });
+                await apiPost('/api/signal', { signal: { type: 'offer', offer } });
             }
         } else if (data.type === 'signal') {
             if (!peerConnection) return;
@@ -168,7 +182,7 @@
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.offer));
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
-                await api('/api/signal', { signal: { type: 'answer', answer } });
+                await apiPost('/api/signal', { signal: { type: 'answer', answer } });
             } else if (sig.type === 'answer') {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.answer));
             } else if (sig.type === 'candidate') {
@@ -209,23 +223,21 @@
                 throw err;
             }
         }
-    }
-
-    function createPeerConnection() {
-        peerConnection = new RTCPeerConnection(rtcConfig);
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-        peerConnection.ontrack = (event) => {
-            if (event.streams && event.streams) {
-                remoteAudio.srcObject = event.streams;
-                remoteAudio.play().catch(() => {});
-                partnerAvatar.classList.add('speaking');
-            }
-        };
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-api('/api/signal', { signal: { type: 'candidate', candidate: event.candidate } });
+}
+function createPeerConnection() {
+peerConnection = new RTCPeerConnection(rtcConfig);
+localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+peerConnection.ontrack = (event) => {
+const stream = Array.from(event.streams).shift();
+if (stream) {
+remoteAudio.srcObject = stream;
+remoteAudio.play().catch(() => {});
+partnerAvatar.classList.add('speaking');
+}
+};
+peerConnection.onicecandidate = (event) => {
+if (event.candidate) {
+apiPost('/api/signal', { signal: { type: 'candidate', candidate: event.candidate } });
 }
 };
 }
@@ -244,11 +256,11 @@ closeCall();
 messagesEl.innerHTML = '';
 btnStop.disabled = false;
 statusEl.textContent = 'Ищем собеседника...';
-await api('/api/find');
+await apiGet('/api/find');
 });
 btnStop.addEventListener('click', async () => {
 closeCall();
-await api('/api/stop');
+await apiGet('/api/stop');
 btnStop.disabled = true;
 statusEl.textContent = 'Поиск остановлен';
 addMessage('Вы завершили диалог', 'sys');
@@ -266,7 +278,7 @@ const text = msgInput.value.trim();
 if (!text) return;
 addMessage(text, 'me');
 msgInput.value = '';
-await api('/api/chat', { text });
+await apiGet('/api/chat', { text });
 });
 
 
