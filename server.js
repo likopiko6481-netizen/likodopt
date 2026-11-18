@@ -2,7 +2,6 @@ const express = require('express');
 const path = require('path');
 
 const app = express();
-app.use(express.json());
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -50,16 +49,16 @@ setInterval(() => {
     }
 }, 4000);
 
-app.post('/api/poll', (req, res) => {
-    const id = req.body && req.body.id;
+app.get('/api/poll', (req, res) => {
+    const id = req.query.id;
     if (!id) return res.status(400).end();
     const u = ensureUser(id);
     const events = u.events.splice(0, u.events.length);
     res.json({ online: users.size, events });
 });
 
-app.post('/api/find', (req, res) => {
-    const id = req.body && req.body.id;
+app.get('/api/find', (req, res) => {
+    const id = req.query.id;
     if (!id) return res.status(400).end();
     ensureUser(id);
     disconnectPartner(id);
@@ -80,15 +79,15 @@ app.post('/api/find', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/signal', (req, res) => {
+app.post('/api/signal', express.json(), (req, res) => {
     const { id, signal } = req.body || {};
     const partnerId = pairs.get(id);
     if (partnerId && signal) pushEvent(partnerId, { type: 'signal', signal });
     res.json({ ok: true });
 });
 
-app.post('/api/chat', (req, res) => {
-    const { id, text } = req.body || {};
+app.get('/api/chat', (req, res) => {
+    const { id, text } = req.query;
     const partnerId = pairs.get(id);
     if (partnerId && typeof text === 'string') {
         pushEvent(partnerId, { type: 'chat_message', text: text.slice(0, 500) });
@@ -96,8 +95,8 @@ app.post('/api/chat', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/stop', (req, res) => {
-    const { id } = req.body || {};
+app.get('/api/stop', (req, res) => {
+    const id = req.query.id;
     if (id) {
         removeFromQueue(id);
         disconnectPartner(id);
