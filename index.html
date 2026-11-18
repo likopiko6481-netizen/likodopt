@@ -20,7 +20,7 @@
             padding: 15px;
         }
         .app {
-            background: rgba(24, 27, 34, 0.82);
+            background: rgba(24, 27, 34, 0.85);
             backdrop-filter: blur(10px);
             width: 100%;
             max-width: 460px;
@@ -83,7 +83,7 @@
 
     <div class="voice-box">
         <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Запрос к серверу...</div>
+        <div id="status">Запуск...</div>
     </div>
 
     <div class="chat-box">
@@ -95,7 +95,7 @@
     </div>
 
     <div class="controls">
-        <button class="btn" id="btnNext" disabled>Найти / Далее</button>
+        <button class="btn" id="btnNext">Найти / Далее</button>
         <button class="btn" id="btnStop" disabled>Стоп</button>
         <button class="btn" id="btnMute" disabled>Выключить микрофон</button>
     </div>
@@ -118,7 +118,6 @@
     const remoteAudio = document.getElementById('remoteAudio');
 
     const myId = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    let isConnected = false;
     let localStream = null;
     let peerConnection = null;
     let isMuted = false;
@@ -141,15 +140,9 @@
     };
 
     async function apiGet(path, params = {}) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
         const query = new URLSearchParams({ id: myId, t: Date.now(), ...params }).toString();
-        try {
-            const res = await fetch(path + '?' + query, { signal: controller.signal });
-            return await res.json();
-        } finally {
-            clearTimeout(timer);
-        }
+        const res = await fetch(path + '?' + query);
+        return res.json();
     }
 
     async function apiPost(path, body = {}) {
@@ -164,10 +157,8 @@
     async function pollLoop() {
         try {
             const data = await apiGet('/api/poll');
-            if (!isConnected) {
-                isConnected = true;
+            if (!connDot.classList.contains('connected')) {
                 connDot.classList.add('connected');
-                btnNext.disabled = false;
                 statusEl.textContent = 'Нажмите «Найти / Далее»';
             }
             onlineCountEl.textContent = data.online;
@@ -175,11 +166,10 @@
                 await handleEvent(ev);
             }
         } catch (e) {
-            isConnected = false;
             connDot.classList.remove('connected');
-            statusEl.textContent = 'Переподключение...';
+            statusEl.textContent = 'Сервер просыпается, подождите 20 сек...';
         }
-        setTimeout(pollLoop, 1000);
+        setTimeout(pollLoop, 1200);
     }
 
     async function handleEvent(data) {
@@ -220,14 +210,17 @@
         }
     }
 
-pollLoop();
-function addMessage(text, type) {
-const div = document.createElement('div');
-div.className = 'msg ' + type;
-div.textContent = text;
-messagesEl.appendChild(div);
-messagesEl.scrollTop = messagesEl.scrollHeight;
-}
+    statusEl.textContent = 'Подключение к серверу...';
+    pollLoop();
+
+    function addMessage(text, type) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + type;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
 function setChatEnabled(enabled) {
 msgInput.disabled = !enabled;
 btnSend.disabled = !enabled;
@@ -239,7 +232,7 @@ try {
 localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 btnMute.disabled = false;
 } catch (err) {
-statusEl.textContent = 'Разрешите доступ к микрофону!';
+statusEl.textContent = 'Разрешите доступ к микрофону в браузере!';
 throw err;
 }
 }
@@ -248,12 +241,11 @@ function createPeerConnection() {
 peerConnection = new RTCPeerConnection(rtcConfig);
 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 peerConnection.ontrack = (event) => {
-const stream = event.streams && event.streams;
-if (stream) {
-remoteAudio.srcObject = stream;
+const remoteStream = new MediaStream();
+remoteStream.addTrack(event.track);
+remoteAudio.srcObject = remoteStream;
 remoteAudio.play().catch(() => {});
 partnerAvatar.classList.add('speaking');
-}
 };
 peerConnection.onicecandidate = (event) => {
 if (event.candidate) {
