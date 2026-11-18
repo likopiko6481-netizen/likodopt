@@ -1,302 +1,141 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const crypto = require('crypto');
+ chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = msgInput.value.trim();
+        if (!text) return;
+        addMessage(text, 'me');
+        msgInput.value = '';
+        await api('/api/chat', { text });
+    });
+</script>
+</body>
+</html>`;
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+app.get('/', (req, res) => {
+    res.send(HTML_PAGE);
+});
 
-const HTML_PAGE = `<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Likodopt — Голосовая чат-рулетка</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f1115;
-            color: #fff;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 15px;
-        }
-        .app {
-            background: #181b22;
-            width: 100%;
-            max-width: 460px;
-            border-radius: 20px;
-            padding: 25px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-            border: 1px solid #262a35;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: #00e676;
-            letter-spacing: 1px;
-        }
-        .online-badge {
-            background: #232834;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            color: #a0aab8;
-            display: flex;
-            align-items: center;
-        }
-        .online-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #ff5252;
-            border-radius: 50%;
-            margin-right: 6px;
-            transition: background 0.3s;
-        }
-        .online-dot.connected { background: #00e676; }
-        .voice-box {
-            background: #12141a;
-            border-radius: 16px;
-            padding: 25px 15px;
-            text-align: center;
-            margin-bottom: 15px;
-            border: 1px solid #222630;
-        }
-        .avatar {
-            width: 72px;
-            height: 72px;
-            border-radius: 50%;
-            background: #232834;
-            margin: 0 auto 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2rem;
-            transition: box-shadow 0.15s ease;
-        }
-        .avatar.speaking {
-            box-shadow: 0 0 0 6px rgba(0, 230, 118, 0.35);
-            background: #1c382c;
-        }
-        #status {
-            font-size: 1rem;
-            color: #cfd8e3;
-            font-weight: 500;
-        }
-        .chat-box {
-            background: #12141a;
-            border-radius: 14px;
-            height: 180px;
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 15px;
-            border: 1px solid #222630;
-            overflow: hidden;
-        }
-        #messages {
-            flex: 1;
-            padding: 12px;
-            overflow-y: auto;
-            font-size: 0.9rem;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .msg { padding: 8px 12px; border-radius: 10px; max-width: 82%; word-wrap: break-word; }
-        .msg.me { background: #00e676; color: #000; align-self: flex-end; font-weight: 500; }
-        .msg.partner { background: #262b38; color: #fff; align-self: flex-start; }
-        .msg.sys { background: transparent; color: #788292; align-self: center; font-size: 0.8rem; text-align: center; }
-        .chat-input {
-            display: flex;
-            border-top: 1px solid #222630;
-        }
-        .chat-input input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            padding: 12px;
-            color: #fff;
-            outline: none;
-            font-size: 0.9rem;
-        }
-        .chat-input button {
-            background: transparent;
-            border: none;
-            color: #00e676;
-            font-weight: bold;
-            padding: 0 16px;
-            cursor: pointer;
-        }
-        .chat-input button:disabled { color: #555; cursor: not-allowed; }
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-        .btn {
-            padding: 14px;
-            border: none;
-            border-radius: 12px;
-            font-size: 1rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
-        }
-        .btn:active { transform: scale(0.98); }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        #btnNext { background: #00e676; color: #000; }
-        #btnStop { background: #ff5252; color: #fff; }
-        #btnMute {
-            grid-column: span 2;
-            background: #262b38;
-            color: #fff;
-            font-weight: 600;
-        }
-        #btnMute.muted { background: #ff9800; color: #000; }
-    </style>
-</head>
-<body>
+const users = new Map();
+let waitingQueue = [];
+const pairs = new Map();
 
-<div class="app">
-    <div class="header">
-        <div class="logo">LIKODOPT</div>
-        <div class="online-badge"><span class="online-dot" id="connDot"></span>Онлайн: <span id="onlineCount">0</span></div>
-    </div>
+function ensureUser(id) {
+    if (!users.has(id)) {
+        users.set(id, { lastSeen: Date.now(), events: [] });
+    }
+    const u = users.get(id);
+    u.lastSeen = Date.now();
+    return u;
+}
 
-    <div class="voice-box">
-        <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Подключение к серверу...</div>
-    </div>
+function pushEvent(id, ev) {
+    const u = users.get(id);
+    if (u) u.events.push(ev);
+}
 
-    <div class="chat-box">
-        <div id="messages"></div>
-        <form class="chat-input" id="chatForm">
-            <input type="text" id="msgInput" placeholder="Написать сообщение..." disabled autocomplete="off">
-            <button type="submit" id="btnSend" disabled>➤</button>
-        </form>
-    </div>
+function removeFromQueue(id) {
+    waitingQueue = waitingQueue.filter(cid => cid !== id);
+}
 
-    <div class="controls">
-        <button class="btn" id="btnNext" disabled>Найти / Далее</button>
-        <button class="btn" id="btnStop" disabled>Стоп</button>
-        <button class="btn" id="btnMute" disabled>Выключить микрофон</button>
-    </div>
+function disconnectPartner(id) {
+    const partnerId = pairs.get(id);
+    if (partnerId) {
+        pairs.delete(id);
+        pairs.delete(partnerId);
+        pushEvent(partnerId, { type: 'partner_disconnected' });
+    }
+}
 
-    <audio id="remoteAudio" autoplay playsinline></audio>
-</div>
-
-<script>
-    const statusEl = document.getElementById('status');
-    const onlineCountEl = document.getElementById('onlineCount');
-    const connDot = document.getElementById('connDot');
-    const partnerAvatar = document.getElementById('partnerAvatar');
-    const messagesEl = document.getElementById('messages');
-    const chatForm = document.getElementById('chatForm');
-    const msgInput = document.getElementById('msgInput');
-    const btnSend = document.getElementById('btnSend');
-    const btnNext = document.getElementById('btnNext');
-    const btnStop = document.getElementById('btnStop');
-    const btnMute = document.getElementById('btnMute');
-    const remoteAudio = document.getElementById('remoteAudio');
-
-    let ws = null;
-    let localStream = null;
-    let peerConnection = null;
-    let isMuted = false;
-    let audioContext = null;
-    let analyserInterval = null;
-
-    const rtcConfig = {
-        iceServers: [
-            { urls: 'stun:://google.com' },
-            { urls: 'stun:://google.com' }
-        ]
-    };
-
-    function sendWS(type, payload = {}) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type, ...payload }));
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, u] of users.entries()) {
+        if (now - u.lastSeen > 10000) {
+            users.delete(id);
+            removeFromQueue(id);
+            disconnectPartner(id);
         }
     }
+}, 4000);
 
-    function connectWS() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(protocol + '//' + window.location.host);
+app.post('/api/poll', (req, res) => {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).end();
+    const u = ensureUser(id);
+    const events = u.events.splice(0, u.events.length);
+    res.json({ online: users.size, events });
+});
 
-        ws.onopen = () => {
-            connDot.classList.add('connected');
-            btnNext.disabled = false;
-            statusEl.textContent = 'Нажмите «Найти / Далее»';
-        };
+app.post('/api/find', (req, res) => {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).end();
+    ensureUser(id);
+    disconnectPartner(id);
+    removeFromQueue(id);
 
-        ws.onclose = () => {
-            connDot.classList.remove('connected');
-            btnNext.disabled = true;
-            btnStop.disabled = true;
-            statusEl.textContent = 'Переподключение...';
-            closeCall();
-            setTimeout(connectWS, 2000);
-        };
+    waitingQueue = waitingQueue.filter(cid => users.has(cid) && cid !== id);
 
-        ws.onerror = () => {
-            statusEl.textContent = 'Ошибка WebSocket. Проверьте интернет/VPN.';
-        };
+    if (waitingQueue.length > 0) {
+        const partnerId = waitingQueue.shift();
+        pairs.set(id, partnerId);
+        pairs.set(partnerId, id);
 
-        ws.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
+        pushEvent(id, { type: 'partner_found', initiator: true });
+        pushEvent(partnerId, { type: 'partner_found', initiator: false });
+    } else {
+        waitingQueue.push(id);
+        pushEvent(id, { type: 'waiting' });
+    }
+    res.json({ ok: true });
+});
 
-            if (data.type === 'online_count') {
-                onlineCountEl.textContent = data.count;
-            } else if (data.type === 'waiting') {
-                statusEl.textContent = 'Поиск собеседника...';
-                addMessage('Ожидание свободного собеседника...', 'sys');
-            } else if (data.type === 'partner_found') {
-                statusEl.textContent = 'Собеседник на связи!';
-                messagesEl.innerHTML = '';
-                addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
-                setChatEnabled(true);
-                createPeerConnection();
+app.post('/api/signal', (req, res) => {
+    const { id, signal } = req.body || {};
+    const partnerId = pairs.get(id);
+    if (partnerId && signal) {
+        pushEvent(partnerId, { type: 'signal', signal });
+    }
+    res.json({ ok: true });
+});
 
-                if (data.initiator) {
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-                    sendWS('signal', { signal: { type: 'offer', offer } });
-                }
-            } else if (data.type === 'signal') {
-                if (!peerConnection) return;
-                const sig = data.signal;
-                if (sig.type === 'offer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    sendWS('signal', { signal: { type: 'answer', answer } });
-                } else if (sig.type === 'answer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.answer));
-                } else if (sig.type === 'candidate') {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(sig.candidate));
-Use code with caution.
+app.post('/api/chat', (req, res) => {
+    const { id, text } = req.body || {};
+    const partnerId = pairs.get(id);
+    if (partnerId && typeof text === 'string') {
+        pushEvent(partnerId, { type: 'chat_message', text: text.slice(0, 500) });
+    }
+    res.json({ ok: true });
+});
+
+app.post('/api/stop', (req, res) => {
+    const { id } = req.body || {};
+    if (id) {
+        removeFromQueue(id);
+        disconnectPartner(id);
+    }
+    res.json({ ok: true });
+});
+
+app.post('/api/leave', express.text({ type: '*/*' }), (req, res) => {
+    try {
+        const { id } = JSON.parse(req.body || '{}');
+        if (id) {
+            users.delete(id);
+            removeFromQueue(id);
+            disconnectPartner(id);
+        }
+    } catch (e) {}
+    res.status(204).end();
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log('Likodopt запущен на порту ' + PORT);
+});addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
 }
-} else if (data.type === 'chat_message') {
-addMessage(data.text, 'partner');
-} else if (data.type === 'partner_disconnected') {
-closeCall();
-statusEl.textContent = 'Собеседник отключился';
-addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
 }
-};
-}
-connectWS();
+window.addEventListener('beforeunload', () => {
+navigator.sendBeacon('/api/leave', JSON.stringify({ id: myId }));
+});
+pollLoop();
 function addMessage(text, type) {
 const div = document.createElement('div');
 div.className = 'msg ' + type;
@@ -354,7 +193,7 @@ function createPeerConnection() {
 peerConnection = new RTCPeerConnection(rtcConfig);
 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 peerConnection.ontrack = (event) => {
-const stream = event.streams[0];
+const stream = event.streams;
 if (stream) {
 remoteAudio.srcObject = stream;
 remoteAudio.play().catch(() => {});
@@ -363,7 +202,7 @@ startVoiceDetector(stream);
 };
 peerConnection.onicecandidate = (event) => {
 if (event.candidate) {
-sendWS('signal', { signal: { type: 'candidate', candidate: event.candidate } });
+api('/api/signal', { signal: { type: 'candidate', candidate: event.candidate } });
 }
 };
 }
@@ -382,11 +221,11 @@ closeCall();
 messagesEl.innerHTML = '';
 btnStop.disabled = false;
 statusEl.textContent = 'Ищем собеседника...';
-sendWS('find_partner');
+await api('/api/find');
 });
-btnStop.addEventListener('click', () => {
+btnStop.addEventListener('click', async () => {
 closeCall();
-sendWS('stop');
+await api('/api/stop');
 btnStop.disabled = true;
 statusEl.textContent = 'Поиск остановлен';
 addMessage('Вы завершили диалог', 'sys');
@@ -394,17 +233,17 @@ addMessage('Вы завершили диалог', 'sys');
 btnMute.addEventListener('click', () => {
 if (!localStream) return;
 isMuted = !isMuted;
-localStream.getAudioTracks()[0].enabled = !isMuted;
+localStream.getAudioTracks().enabled = !isMuted;
 btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
 btnMute.classList.toggle('muted', isMuted);
 });
-chatForm.addEventListener('submit', (e) => {
+chatForm.addEventListener('submit', async (e) => {
 e.preventDefault();
 const text = msgInput.value.trim();
 if (!text) return;
 addMessage(text, 'me');
-sendWS('chat_message', { text });
 msgInput.value = '';
+await api('/api/chat', { text });
 });
 
 
@@ -412,19 +251,20 @@ msgInput.value = '';
 app.get('/', (req, res) => {
 res.send(HTML_PAGE);
 });
+const users = new Map();
 let waitingQueue = [];
 const pairs = new Map();
-const clients = new Map();
-function sendJSON(ws, obj) {
-if (ws && ws.readyState === WebSocket.OPEN) {
-ws.send(JSON.stringify(obj));
+function ensureUser(id) {
+if (!users.has(id)) {
+users.set(id, { lastSeen: Date.now(), events: [] });
 }
+const u = users.get(id);
+u.lastSeen = Date.now();
+return u;
 }
-function broadcastOnline() {
-const count = clients.size;
-for (const client of clients.values()) {
-sendJSON(client, { type: 'online_count', count });
-}
+function pushEvent(id, ev) {
+const u = users.get(id);
+if (u) u.events.push(ev);
 }
 function removeFromQueue(id) {
 waitingQueue = waitingQueue.filter(cid => cid !== id);
@@ -434,56 +274,81 @@ const partnerId = pairs.get(id);
 if (partnerId) {
 pairs.delete(id);
 pairs.delete(partnerId);
-sendJSON(clients.get(partnerId), { type: 'partner_disconnected' });
+pushEvent(partnerId, { type: 'partner_disconnected' });
 }
 }
-wss.on('connection', (ws) => {
-const id = crypto.randomUUID();
-clients.set(id, ws);
-broadcastOnline();
-// Пинг каждые 25 секунд, чтобы Render не разрывал соединение
-const pingInterval = setInterval(() => {
-if (ws.readyState === WebSocket.OPEN) ws.ping();
-}, 25000);
-ws.on('message', (raw) => {
-let data;
-try { data = JSON.parse(raw); } catch (e) { return; }
-if (data.type === 'find_partner') {
+setInterval(() => {
+const now = Date.now();
+for (const [id, u] of users.entries()) {
+if (now - u.lastSeen > 10000) {
+users.delete(id);
+removeFromQueue(id);
+disconnectPartner(id);
+}
+}
+}, 4000);
+app.post('/api/poll', (req, res) => {
+const { id } = req.body || {};
+if (!id) return res.status(400).end();
+const u = ensureUser(id);
+const events = u.events.splice(0, u.events.length);
+res.json({ online: users.size, events });
+});
+app.post('/api/find', (req, res) => {
+const { id } = req.body || {};
+if (!id) return res.status(400).end();
+ensureUser(id);
 disconnectPartner(id);
 removeFromQueue(id);
-waitingQueue = waitingQueue.filter(cid => clients.has(cid) && cid !== id);
+waitingQueue = waitingQueue.filter(cid => users.has(cid) && cid !== id);
 if (waitingQueue.length > 0) {
 const partnerId = waitingQueue.shift();
 pairs.set(id, partnerId);
 pairs.set(partnerId, id);
-sendJSON(ws, { type: 'partner_found', initiator: true });
-sendJSON(clients.get(partnerId), { type: 'partner_found', initiator: false });
+pushEvent(id, { type: 'partner_found', initiator: true });
+pushEvent(partnerId, { type: 'partner_found', initiator: false });
 } else {
 waitingQueue.push(id);
-sendJSON(ws, { type: 'waiting' });
+pushEvent(id, { type: 'waiting' });
 }
-} else if (data.type === 'signal') {
+res.json({ ok: true });
+});
+app.post('/api/signal', (req, res) => {
+const { id, signal } = req.body || {};
 const partnerId = pairs.get(id);
-if (partnerId) sendJSON(clients.get(partnerId), { type: 'signal', signal: data.signal });
-} else if (data.type === 'chat_message') {
-const partnerId = pairs.get(id);
-if (partnerId && typeof data.text === 'string') {
-sendJSON(clients.get(partnerId), { type: 'chat_message', text: data.text.slice(0, 500) });
+if (partnerId && signal) {
+pushEvent(partnerId, { type: 'signal', signal });
 }
-} else if (data.type === 'stop') {
+res.json({ ok: true });
+});
+app.post('/api/chat', (req, res) => {
+const { id, text } = req.body || {};
+const partnerId = pairs.get(id);
+if (partnerId && typeof text === 'string') {
+pushEvent(partnerId, { type: 'chat_message', text: text.slice(0, 500) });
+}
+res.json({ ok: true });
+});
+app.post('/api/stop', (req, res) => {
+const { id } = req.body || {};
+if (id) {
 removeFromQueue(id);
 disconnectPartner(id);
 }
+res.json({ ok: true });
 });
-ws.on('close', () => {
-clearInterval(pingInterval);
-clients.delete(id);
+app.post('/api/leave', express.text({ type: '/' }), (req, res) => {
+try {
+const { id } = JSON.parse(req.body || '{}');
+if (id) {
+users.delete(id);
 removeFromQueue(id);
 disconnectPartner(id);
-broadcastOnline();
-});
+}
+} catch (e) {}
+res.status(204).end();
 });
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', () => {
 console.log('Likodopt запущен на порту ' + PORT);
 });
