@@ -6,7 +6,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Вся клиентская часть (HTML + CSS + JS) встроена прямо в сервер
 const HTML_PAGE = `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -249,7 +248,6 @@ const HTML_PAGE = `<!DOCTYPE html>
         }
     }
 
-    // Индикатор голоса собеседника
     function startVoiceDetector(stream) {
         stopVoiceDetector();
         try {
@@ -305,3 +303,133 @@ const HTML_PAGE = `<!DOCTYPE html>
             peerConnection.close();
             peerConnection = null;
         }
+        remoteAudio.srcObject = null;
+        setChatEnabled(false);
+    }
+
+    btnNext.addEventListener('click', async () => {
+Use code with caution.
+await initAudio();
+closeCall();
+messagesEl.innerHTML = '';
+btnStop.disabled = false;
+socket.emit('find_partner');
+});
+btnStop.addEventListener('click', () => {
+closeCall();
+socket.emit('stop');
+btnStop.disabled = true;
+statusEl.textContent = 'Поиск остановлен';
+addMessage('Вы завершили диалог', 'sys');
+});
+btnMute.addEventListener('click', () => {
+if (!localStream) return;
+isMuted = !isMuted;
+localStream.getAudioTracks()[0].enabled = !isMuted;
+btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
+btnMute.classList.toggle('muted', isMuted);
+});
+chatForm.addEventListener('submit', (e) => {
+e.preventDefault();
+const text = msgInput.value.trim();
+if (!text) return;
+addMessage(text, 'me');
+socket.emit('chat_message', text);
+msgInput.value = '';
+});
+socket.on('online_count', (count) => {
+onlineCountEl.textContent = count;
+});
+socket.on('waiting', () => {
+statusEl.textContent = 'Поиск собеседника...';
+addMessage('Ищем свободного пользователя...', 'sys');
+});
+socket.on('partner_found', async ({ initiator }) => {
+statusEl.textContent = 'Собеседник на связи!';
+messagesEl.innerHTML = '';
+addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
+setChatEnabled(true);
+createPeerConnection();
+if (initiator) {
+const offer = await peerConnection.createOffer();
+await peerConnection.setLocalDescription(offer);
+socket.emit('signal', { type: 'offer', offer });
+}
+});
+socket.on('signal', async (data) => {
+if (!peerConnection) return;
+if (data.type === 'offer') {
+await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+const answer = await peerConnection.createAnswer();
+await peerConnection.setLocalDescription(answer);
+socket.emit('signal', { type: 'answer', answer });
+} else if (data.type === 'answer') {
+await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+} else if (data.type === 'candidate') {
+await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+}
+});
+socket.on('chat_message', (text) => {
+addMessage(text, 'partner');
+});
+socket.on('partner_disconnected', () => {
+closeCall();
+statusEl.textContent = 'Собеседник отключился';
+addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
+});
+
+
+`;
+app.get('/', (req, res) => {
+res.send(HTML_PAGE);
+});
+let waitingUser = null;
+const pairs = new Map();
+io.on('connection', (socket) => {
+io.emit('online_count', io.engine.clientsCount);
+socket.on('find_partner', () => {
+disconnectPartner(socket);
+if (waitingUser && waitingUser.id !== socket.id && waitingUser.connected) {
+const partner = waitingUser;
+waitingUser = null;
+pairs.set(socket.id, partner.id);
+pairs.set(partner.id, socket.id);
+socket.emit('partner_found', { initiator: true });
+partner.emit('partner_found', { initiator: false });
+} else {
+waitingUser = socket;
+socket.emit('waiting');
+}
+});
+socket.on('signal', (data) => {
+const partnerId = pairs.get(socket.id);
+if (partnerId) io.to(partnerId).emit('signal', data);
+});
+socket.on('chat_message', (text) => {
+const partnerId = pairs.get(socket.id);
+if (partnerId && typeof text === 'string') {
+io.to(partnerId).emit('chat_message', text.slice(0, 500));
+}
+});
+socket.on('stop', () => {
+if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+disconnectPartner(socket);
+});
+socket.on('disconnect', () => {
+if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+disconnectPartner(socket);
+io.emit('online_count', io.engine.clientsCount);
+});
+function disconnectPartner(userSocket) {
+const partnerId = pairs.get(userSocket.id);
+if (partnerId) {
+pairs.delete(userSocket.id);
+pairs.delete(partnerId);
+io.to(partnerId).emit('partner_disconnected');
+}
+}
+});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+console.log('Likodopt запущен на порту ' + PORT);
+});
