@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Likodopt — Голосовая чат-рулетка</title>
-    <script src="https://unpkg.com"></script>
+    <script src="https://jsdelivr.net"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -77,7 +77,7 @@
 <div class="app">
     <div class="header">
         <div class="logo">LIKODOPT</div>
-        <div class="online-badge"><span class="online-dot"></span>P2P Сеть</div>
+        <div class="online-badge"><span class="online-dot"></span>Онлайн P2P</div>
     </div>
 
     <div class="voice-box">
@@ -114,14 +114,22 @@
     const btnMute = document.getElementById('btnMute');
     const remoteAudio = document.getElementById('remoteAudio');
 
-    // 10 общих слотов комнат для случайного подбора без собственного сервера
-    const ROOM_SLOTS = 10;
+    const peerConfig = {
+        config: {
+            iceServers: [
+                { urls: 'stun:://google.com' },
+                { urls: 'stun:://google.com' }
+            ]
+        }
+    };
+
     let peer = null;
     let currentCall = null;
     let dataConn = null;
     let localStream = null;
     let isMuted = false;
     let isSearching = false;
+    let currentSlot = 0;
 
     function addMessage(text, type) {
         const div = document.createElement('div');
@@ -153,22 +161,27 @@
         isSearching = false;
         partnerAvatar.classList.remove('speaking');
         setChatEnabled(false);
-        if (currentCall) { currentCall.close(); currentCall = null; }
-        if (dataConn) { dataConn.close(); dataConn = null; }
-        if (peer) { peer.destroy(); peer = null; }
+        if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
+        if (dataConn) { try { dataConn.close(); } catch(e){} dataConn = null; }
+        if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
         remoteAudio.srcObject = null;
+    }
+
+    function onPartnerConnected() {
+        isSearching = false;
+        statusEl.textContent = 'Собеседник на связи!';
+        messagesEl.innerHTML = '';
+        addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
+        partnerAvatar.classList.add('speaking');
+        setChatEnabled(true);
     }
 
     function setupCallEvents(call) {
         currentCall = call;
         call.on('stream', (remoteStream) => {
-            isSearching = false;
-            statusEl.textContent = 'Собеседник на связи!';
-            messagesEl.innerHTML = '';
-            addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
+            onPartnerConnected();
             remoteAudio.srcObject = remoteStream;
             remoteAudio.play().catch(() => {});
-            partnerAvatar.classList.add('speaking');
         });
         call.on('close', () => {
             cleanupConnection();
@@ -179,33 +192,30 @@
 
     function setupDataEvents(conn) {
         dataConn = conn;
-        conn.on('open', () => setChatEnabled(true));
+        conn.on('open', () => {
+            onPartnerConnected();
+        });
         conn.on('data', (data) => {
             if (typeof data === 'string') addMessage(data, 'partner');
         });
-        conn.on('close', () => setChatEnabled(false));
+        conn.on('close', () => {
+            cleanupConnection();
+            statusEl.textContent = 'Собеседник отключился';
+            addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
+        });
     }
 
-    function startSearch() {
-        cleanupConnection();
-        isSearching = true;
-        btnStop.disabled = false;
-        messagesEl.innerHTML = '';
-        statusEl.textContent = 'Поиск свободного собеседника...';
-        addMessage('Подключение к P2P-сети...', 'sys');
-
-        // Выбираем случайный слот ожидания
-        const slot = Math.floor(Math.random() * ROOM_SLOTS);
-        const hostId = 'likodopt-room-slot-' + slot;
-
-        // Пробуем занять слот как ожидающий (хост)
-        const tempPeer = new Peer(hostId);
+    // Последовательный поиск по порядку: 0, 1, 2, 3...
+    function trySlot(slotIndex) {
+        if (!isSearching) return;
+        const roomId = 'likodopt-queue-room-' + slotIndex;
+        const tempPeer = new Peer(roomId, peerConfig);
 
         tempPeer.on('open', () => {
-            // Слот свободен — мы встали в очередь и ждем звонка
+            // Слот свободен — мы становимся в ожидание в этот слот!
             peer = tempPeer;
             statusEl.textContent = 'Ожидание собеседника...';
-            addMessage('Вы в очереди. Ждем второго участника...', 'sys');
+            addMessage('Вы в очереди (слот #' + (slotIndex + 1) + '). Ждем собеседника...', 'sys');
 
             peer.on('call', (incomingCall) => {
                 if (!isSearching) { incomingCall.close(); return; }
@@ -214,32 +224,49 @@
             });
 
             peer.on('connection', (incomingConn) => {
+                if (!isSearching) { incomingConn.close(); return; }
                 setupDataEvents(incomingConn);
             });
         });
 
         tempPeer.on('error', (err) => {
+            tempPeer.destroy();
+            if (!isSearching) return;
+
             if (err.type === 'unavailable-id') {
-                // Слот занят другим человеком! Звоним ему напрямую
-                tempPeer.destroy();
-                peer = new Peer();
-                peer.on('open', () => {
-                    const call = peer.call(hostId, localStream);
-                    const conn = peer.connect(hostId);
-                    setupCallEvents(call);
-                    setupDataEvents(conn);
-                });
-                peer.on('error', () => {
-                    if (isSearching) setTimeout(startSearch, 1000);
-                });
-            } else {
-statusEl.textContent = 'Ошибка P2P: ' + err.type;
+                // В этом слоте уже ждет живой человек! Звоним ему напрямую
+                statusEl.textContent = 'Подключаемся к собеседнику...';
+                const callerPeer = new Peer(peerConfig);
+peer = callerPeer;
+callerPeer.on('open', () => {
+const conn = callerPeer.connect(roomId, { reliable: true });
+const call = callerPeer.call(roomId, localStream);
+setupDataEvents(conn);
+setupCallEvents(call);
+// Если человек в слоте уже занят кем-то другим (не ответил за 3 сек), идем в следующий слот
+setTimeout(() => {
+if (isSearching && (!dataConn || !dataConn.open)) {
+callerPeer.destroy();
+trySlot(slotIndex + 1);
+}
+}, 3000);
+});
+callerPeer.on('error', () => {
+if (isSearching) trySlot(slotIndex + 1);
+});
+} else {
+statusEl.textContent = 'Ошибка сети P2P (' + err.type + '). Проверьте VPN.';
 }
 });
 }
 btnNext.addEventListener('click', async () => {
 await initAudio();
-startSearch();
+cleanupConnection();
+isSearching = true;
+btnStop.disabled = false;
+messagesEl.innerHTML = '';
+statusEl.textContent = 'Поиск собеседника...';
+trySlot(0);
 });
 btnStop.addEventListener('click', () => {
 cleanupConnection();
