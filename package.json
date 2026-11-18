@@ -1,18 +1,41 @@
 {
-  "name": "likodopt",
-  "version": "1.0.0",
-  "description": "Likodopt — голосовая чат-рулетка",
-  "main": "server.js",
+  "name": "which-module",
+  "version": "2.0.1",
+  "description": "Find the module object for something that was require()d",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "pretest": "standard",
+    "test": "nyc ava",
+    "coverage": "nyc report --reporter=text-lcov | coveralls",
+    "release": "standard-version"
   },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "peer": "^1.0.2",
-    "ws": "^8.17.0"
+  "files": [
+    "index.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nexdrew/which-module.git"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "keywords": [
+    "which",
+    "module",
+    "exports",
+    "filename",
+    "require",
+    "reverse",
+    "lookup"
+  ],
+  "author": "nexdrew",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nexdrew/which-module/issues"
+  },
+  "homepage": "https://github.com/nexdrew/which-module#readme",
+  "devDependencies": {
+    "ava": "^2.0.0",
+    "coveralls": "^3.0.3",
+    "nyc": "^14.0.0",
+    "standard": "^14.0.0",
+    "standard-version": "^7.0.0"
   }
 }
