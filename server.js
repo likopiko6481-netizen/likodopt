@@ -1,5 +1,4 @@
 const express = require('express');
-
 const app = express();
 app.use(express.json());
 
@@ -58,7 +57,6 @@ const HTML_PAGE = `<!DOCTYPE html>
             background: #ff5252;
             border-radius: 50%;
             margin-right: 6px;
-            transition: background 0.3s;
         }
         .online-dot.connected { background: #00e676; }
         .voice-box {
@@ -79,17 +77,12 @@ const HTML_PAGE = `<!DOCTYPE html>
             align-items: center;
             justify-content: center;
             font-size: 2rem;
-            transition: box-shadow 0.15s ease;
         }
         .avatar.speaking {
             box-shadow: 0 0 0 6px rgba(0, 230, 118, 0.35);
             background: #1c382c;
         }
-        #status {
-            font-size: 1rem;
-            color: #cfd8e3;
-            font-weight: 500;
-        }
+        #status { font-size: 1rem; color: #cfd8e3; font-weight: 500; }
         .chat-box {
             background: #12141a;
             border-radius: 14px;
@@ -113,10 +106,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         .msg.me { background: #00e676; color: #000; align-self: flex-end; font-weight: 500; }
         .msg.partner { background: #262b38; color: #fff; align-self: flex-start; }
         .msg.sys { background: transparent; color: #788292; align-self: center; font-size: 0.8rem; text-align: center; }
-        .chat-input {
-            display: flex;
-            border-top: 1px solid #222630;
-        }
+        .chat-input { display: flex; border-top: 1px solid #222630; }
         .chat-input input {
             flex: 1;
             background: transparent;
@@ -135,11 +125,7 @@ const HTML_PAGE = `<!DOCTYPE html>
             cursor: pointer;
         }
         .chat-input button:disabled { color: #555; cursor: not-allowed; }
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .btn {
             padding: 14px;
             border: none;
@@ -147,18 +133,11 @@ const HTML_PAGE = `<!DOCTYPE html>
             font-size: 1rem;
             font-weight: 700;
             cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
         }
-        .btn:active { transform: scale(0.98); }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
         #btnNext { background: #00e676; color: #000; }
         #btnStop { background: #ff5252; color: #fff; }
-        #btnMute {
-            grid-column: span 2;
-            background: #262b38;
-            color: #fff;
-            font-weight: 600;
-        }
+        #btnMute { grid-column: span 2; background: #262b38; color: #fff; font-weight: 600; }
         #btnMute.muted { background: #ff9800; color: #000; }
     </style>
 </head>
@@ -172,7 +151,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     <div class="voice-box">
         <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Подключение к серверу...</div>
+        <div id="status">Запуск интерфейса...</div>
     </div>
 
     <div class="chat-box">
@@ -193,46 +172,49 @@ const HTML_PAGE = `<!DOCTYPE html>
 </div>
 
 <script>
-    const statusEl = document.getElementById('status');
-    const onlineCountEl = document.getElementById('onlineCount');
-    const connDot = document.getElementById('connDot');
-    const partnerAvatar = document.getElementById('partnerAvatar');
-    const messagesEl = document.getElementById('messages');
-    const chatForm = document.getElementById('chatForm');
-    const msgInput = document.getElementById('msgInput');
-    const btnSend = document.getElementById('btnSend');
-    const btnNext = document.getElementById('btnNext');
-    const btnStop = document.getElementById('btnStop');
-    const btnMute = document.getElementById('btnMute');
-    const remoteAudio = document.getElementById('remoteAudio');
+    var statusEl = document.getElementById('status');
+    var onlineCountEl = document.getElementById('onlineCount');
+    var connDot = document.getElementById('connDot');
+    var partnerAvatar = document.getElementById('partnerAvatar');
+    var messagesEl = document.getElementById('messages');
+    var chatForm = document.getElementById('chatForm');
+    var msgInput = document.getElementById('msgInput');
+    var btnSend = document.getElementById('btnSend');
+    var btnNext = document.getElementById('btnNext');
+    var btnStop = document.getElementById('btnStop');
+    var btnMute = document.getElementById('btnMute');
+    var remoteAudio = document.getElementById('remoteAudio');
 
-    const myId = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    let isConnected = false;
-    let localStream = null;
-    let peerConnection = null;
-    let isMuted = false;
-    let audioContext = null;
-    let analyserInterval = null;
+    window.onerror = function(msg, url, line) {
+        statusEl.textContent = 'Сбой скрипта (стр. ' + line + '): ' + msg;
+    };
 
-    const rtcConfig = {
+    var myId = 'u_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    var isConnected = false;
+    var localStream = null;
+    var peerConnection = null;
+    var isMuted = false;
+    var audioContext = null;
+    var analyserInterval = null;
+
+    var rtcConfig = {
         iceServers: [
             { urls: 'stun:://google.com' },
             { urls: 'stun:://google.com' }
         ]
     };
 
-    async function api(path, body = {}) {
-        const res = await fetch(path, {
+    function api(path, body) {
+        var payload = Object.assign({ id: myId }, body || {});
+        return fetch(path, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: myId, ...body })
-        });
-        return res.json();
+            body: JSON.stringify(payload)
+        }).then(function(res) { return res.json(); });
     }
 
-    async function pollLoop() {
-        try {
-            const data = await api('/api/poll');
+    function pollLoop() {
+        api('/api/poll', {}).then(function(data) {
             if (!isConnected) {
                 isConnected = true;
                 connDot.classList.add('connected');
@@ -241,15 +223,18 @@ const HTML_PAGE = `<!DOCTYPE html>
             }
             onlineCountEl.textContent = data.online;
 
-            for (const ev of data.events) {
-                await handleEvent(ev);
+            if (data.events && data.events.length > 0) {
+                data.events.forEach(function(ev) {
+                    handleEvent(ev);
+                });
             }
-        } catch (e) {
+            setTimeout(pollLoop, 800);
+        }).catch(function(err) {
             isConnected = false;
             connDot.classList.remove('connected');
-            statusEl.textContent = 'Переподключение к серверу...';
-        }
-        setTimeout(pollLoop, 800);
+            statusEl.textContent = 'Нет связи с сервером: ' + err.message;
+            setTimeout(pollLoop, 2000);
+        });
     }
 
     async function handleEvent(data) {
@@ -264,18 +249,18 @@ const HTML_PAGE = `<!DOCTYPE html>
             createPeerConnection();
 
             if (data.initiator) {
-                const offer = await peerConnection.createOffer();
+                var offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
-                await api('/api/signal', { signal: { type: 'offer', offer } });
+                api('/api/signal', { signal: { type: 'offer', offer: offer } });
             }
         } else if (data.type === 'signal') {
             if (!peerConnection) return;
-            const sig = data.signal;
+            var sig = data.signal;
             if (sig.type === 'offer') {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.offer));
-                const answer = await peerConnection.createAnswer();
+                var answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
-                await api('/api/signal', { signal: { type: 'answer', answer } });
+                api('/api/signal', { signal: { type: 'answer', answer: answer } });
             } else if (sig.type === 'answer') {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.answer));
             } else if (sig.type === 'candidate') {
@@ -285,15 +270,15 @@ const HTML_PAGE = `<!DOCTYPE html>
             addMessage(data.text, 'partner');
         } else if (data.type === 'partner_disconnected') {
             closeCall();
-            statusEl.textContent = 'Собеседник отключился';addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
-}
-}
-window.addEventListener('beforeunload', () => {
-navigator.sendBeacon('/api/leave', JSON.stringify({ id: myId }));
-});
+            statusEl.textContent = 'Собеседник отключился';
+            addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
+        }
+    }
+
+statusEl.textContent = 'Подключение к серверу...';
 pollLoop();
 function addMessage(text, type) {
-const div = document.createElement('div');
+var div = document.createElement('div');
 div.className = 'msg ' + type;
 div.textContent = text;
 messagesEl.appendChild(div);
@@ -322,16 +307,17 @@ throw err;
 function startVoiceDetector(stream) {
 stopVoiceDetector();
 try {
-audioContext = new (window.AudioContext || window.webkitAudioContext)();
-const source = audioContext.createMediaStreamSource(stream);
-const analyser = audioContext.createAnalyser();
+var AudioCtx = window.AudioContext || window.webkitAudioContext;
+audioContext = new AudioCtx();
+var source = audioContext.createMediaStreamSource(stream);
+var analyser = audioContext.createAnalyser();
 analyser.fftSize = 256;
 source.connect(analyser);
-const data = new Uint8Array(analyser.frequencyBinCount);
-analyserInterval = setInterval(() => {
+var data = new Uint8Array(analyser.frequencyBinCount);
+analyserInterval = setInterval(function() {
 analyser.getByteFrequencyData(data);
-let sum = 0;
-for (let i = 0; i < data.length; i++) sum += data[i];
+var sum = 0;
+for (var i = 0; i < data.length; i++) sum += data.at(i);
 if ((sum / data.length) > 12) {
 partnerAvatar.classList.add('speaking');
 } else {
@@ -342,21 +328,23 @@ partnerAvatar.classList.remove('speaking');
 }
 function stopVoiceDetector() {
 if (analyserInterval) clearInterval(analyserInterval);
-if (audioContext) audioContext.close().catch(() => {});
+if (audioContext) audioContext.close().catch(function() {});
 partnerAvatar.classList.remove('speaking');
 }
 function createPeerConnection() {
 peerConnection = new RTCPeerConnection(rtcConfig);
-localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-peerConnection.ontrack = (event) => {
-const stream = event.streams[0];
+localStream.getTracks().forEach(function(track) {
+peerConnection.addTrack(track, localStream);
+});
+peerConnection.ontrack = function(event) {
+var stream = event.streams.at(0);
 if (stream) {
 remoteAudio.srcObject = stream;
-remoteAudio.play().catch(() => {});
+remoteAudio.play().catch(function() {});
 startVoiceDetector(stream);
 }
 };
-peerConnection.onicecandidate = (event) => {
+peerConnection.onicecandidate = function(event) {
 if (event.candidate) {
 api('/api/signal', { signal: { type: 'candidate', candidate: event.candidate } });
 }
@@ -371,40 +359,41 @@ peerConnection = null;
 remoteAudio.srcObject = null;
 setChatEnabled(false);
 }
-btnNext.addEventListener('click', async () => {
+btnNext.addEventListener('click', async function() {
 await initAudio();
 closeCall();
 messagesEl.innerHTML = '';
 btnStop.disabled = false;
 statusEl.textContent = 'Ищем собеседника...';
-await api('/api/find');
+api('/api/find', {});
 });
-btnStop.addEventListener('click', async () => {
+btnStop.addEventListener('click', function() {
 closeCall();
-await api('/api/stop');
+api('/api/stop', {});
 btnStop.disabled = true;
 statusEl.textContent = 'Поиск остановлен';
 addMessage('Вы завершили диалог', 'sys');
 });
-btnMute.addEventListener('click', () => {
+btnMute.addEventListener('click', function() {
 if (!localStream) return;
 isMuted = !isMuted;
-localStream.getAudioTracks()[0].enabled = !isMuted;
+var track = localStream.getAudioTracks().at(0);
+if (track) track.enabled = !isMuted;
 btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
 btnMute.classList.toggle('muted', isMuted);
 });
-chatForm.addEventListener('submit', async (e) => {
+chatForm.addEventListener('submit', function(e) {
 e.preventDefault();
-const text = msgInput.value.trim();
+var text = msgInput.value.trim();
 if (!text) return;
 addMessage(text, 'me');
 msgInput.value = '';
-await api('/api/chat', { text });
+api('/api/chat', { text: text });
 });
 
 
 `;
-app.get('/', (req, res) => {
+app.get('/', function(req, res) {
 res.send(HTML_PAGE);
 });
 const users = new Map();
@@ -423,7 +412,7 @@ const u = users.get(id);
 if (u) u.events.push(ev);
 }
 function removeFromQueue(id) {
-waitingQueue = waitingQueue.filter(cid => cid !== id);
+waitingQueue = waitingQueue.filter(function(cid) { return cid !== id; });
 }
 function disconnectPartner(id) {
 const partnerId = pairs.get(id);
@@ -433,7 +422,7 @@ pairs.delete(partnerId);
 pushEvent(partnerId, { type: 'partner_disconnected' });
 }
 }
-setInterval(() => {
+setInterval(function() {
 const now = Date.now();
 for (const [id, u] of users.entries()) {
 if (now - u.lastSeen > 10000) {
@@ -443,20 +432,22 @@ disconnectPartner(id);
 }
 }
 }, 4000);
-app.post('/api/poll', (req, res) => {
-const { id } = req.body || {};
+app.post('/api/poll', function(req, res) {
+const id = req.body && req.body.id;
 if (!id) return res.status(400).end();
 const u = ensureUser(id);
 const events = u.events.splice(0, u.events.length);
-res.json({ online: users.size, events });
+res.json({ online: users.size, events: events });
 });
-app.post('/api/find', (req, res) => {
-const { id } = req.body || {};
+app.post('/api/find', function(req, res) {
+const id = req.body && req.body.id;
 if (!id) return res.status(400).end();
 ensureUser(id);
 disconnectPartner(id);
 removeFromQueue(id);
-waitingQueue = waitingQueue.filter(cid => users.has(cid) && cid !== id);
+waitingQueue = waitingQueue.filter(function(cid) {
+return users.has(cid) && cid !== id;
+});
 if (waitingQueue.length > 0) {
 const partnerId = waitingQueue.shift();
 pairs.set(id, partnerId);
@@ -469,42 +460,33 @@ pushEvent(id, { type: 'waiting' });
 }
 res.json({ ok: true });
 });
-app.post('/api/signal', (req, res) => {
-const { id, signal } = req.body || {};
+app.post('/api/signal', function(req, res) {
+const id = req.body && req.body.id;
+const signal = req.body && req.body.signal;
 const partnerId = pairs.get(id);
 if (partnerId && signal) {
-pushEvent(partnerId, { type: 'signal', signal });
+pushEvent(partnerId, { type: 'signal', signal: signal });
 }
 res.json({ ok: true });
 });
-app.post('/api/chat', (req, res) => {
-const { id, text } = req.body || {};
+app.post('/api/chat', function(req, res) {
+const id = req.body && req.body.id;
+const text = req.body && req.body.text;
 const partnerId = pairs.get(id);
 if (partnerId && typeof text === 'string') {
 pushEvent(partnerId, { type: 'chat_message', text: text.slice(0, 500) });
 }
 res.json({ ok: true });
 });
-app.post('/api/stop', (req, res) => {
-const { id } = req.body || {};
+app.post('/api/stop', function(req, res) {
+const id = req.body && req.body.id;
 if (id) {
 removeFromQueue(id);
 disconnectPartner(id);
 }
 res.json({ ok: true });
 });
-app.post('/api/leave', express.text({ type: '/' }), (req, res) => {
-try {
-const { id } = JSON.parse(req.body || '{}');
-if (id) {
-users.delete(id);
-removeFromQueue(id);
-disconnectPartner(id);
-}
-} catch (e) {}
-res.status(204).end();
-});
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', function() {
 console.log('Likodopt запущен на порту ' + PORT);
 });
