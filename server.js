@@ -3,6 +3,7 @@ const path = require('path');
 
 const app = express();
 app.use(express.static(__dirname));
+app.use(express.json());
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -42,7 +43,7 @@ function disconnectPartner(id) {
 setInterval(() => {
     const now = Date.now();
     for (const [id, u] of users.entries()) {
-        if (now - u.lastSeen > 10000) {
+        if (now - u.lastSeen > 12000) {
             users.delete(id);
             removeFromQueue(id);
             disconnectPartner(id);
@@ -80,7 +81,7 @@ app.get('/api/find', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/signal', express.json(), (req, res) => {
+app.post('/api/signal', (req, res) => {
     const { id, signal } = req.body || {};
     const partnerId = pairs.get(id);
     if (partnerId && signal) pushEvent(partnerId, { type: 'signal', signal });
