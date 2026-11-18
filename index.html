@@ -220,3 +220,85 @@
         }
     }
 
+pollLoop();
+function addMessage(text, type) {
+const div = document.createElement('div');
+div.className = 'msg ' + type;
+div.textContent = text;
+messagesEl.appendChild(div);
+messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function setChatEnabled(enabled) {
+msgInput.disabled = !enabled;
+btnSend.disabled = !enabled;
+if (!enabled) msgInput.value = '';
+}
+async function initAudio() {
+if (!localStream) {
+try {
+localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+btnMute.disabled = false;
+} catch (err) {
+statusEl.textContent = 'Разрешите доступ к микрофону!';
+throw err;
+}
+}
+}
+function createPeerConnection() {
+peerConnection = new RTCPeerConnection(rtcConfig);
+localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+peerConnection.ontrack = (event) => {
+const stream = event.streams && event.streams;
+if (stream) {
+remoteAudio.srcObject = stream;
+remoteAudio.play().catch(() => {});
+partnerAvatar.classList.add('speaking');
+}
+};
+peerConnection.onicecandidate = (event) => {
+if (event.candidate) {
+apiPost('/api/signal', { signal: { type: 'candidate', candidate: event.candidate } });
+}
+};
+}
+function closeCall() {
+partnerAvatar.classList.remove('speaking');
+if (peerConnection) {
+peerConnection.close();
+peerConnection = null;
+}
+remoteAudio.srcObject = null;
+setChatEnabled(false);
+}
+btnNext.addEventListener('click', async () => {
+await initAudio();
+closeCall();
+messagesEl.innerHTML = '';
+btnStop.disabled = false;
+statusEl.textContent = 'Ищем собеседника...';
+await apiGet('/api/find');
+});
+btnStop.addEventListener('click', async () => {
+closeCall();
+await apiGet('/api/stop');
+btnStop.disabled = true;
+statusEl.textContent = 'Поиск остановлен';
+addMessage('Вы завершили диалог', 'sys');
+});
+btnMute.addEventListener('click', () => {
+if (!localStream) return;
+isMuted = !isMuted;
+localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
+btnMute.classList.toggle('muted', isMuted);
+});
+chatForm.addEventListener('submit', async (e) => {
+e.preventDefault();
+const text = msgInput.value.trim();
+if (!text) return;
+addMessage(text, 'me');
+msgInput.value = '';
+await apiGet('/api/chat', { text });
+});
+
+
