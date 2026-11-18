@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Likodopt — Голосовая чат-рулетка</title>
-    <script src="https://jsdelivr.net"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -37,9 +36,10 @@
             font-size: 0.85rem; color: #e0d0e8; display: flex; align-items: center;
         }
         .online-dot {
-            display: inline-block; width: 8px; height: 8px; background: #00e676;
+            display: inline-block; width: 8px; height: 8px; background: #ff5252;
             border-radius: 50%; margin-right: 6px;
         }
+        .online-dot.connected { background: #00e676; }
         .voice-box {
             background: rgba(18, 20, 26, 0.72); border-radius: 16px; padding: 25px 15px;
             text-align: center; margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.08);
@@ -47,6 +47,7 @@
         .avatar {
             width: 72px; height: 72px; border-radius: 50%; background: #2b2334;
             margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; font-size: 2rem;
+            transition: box-shadow 0.15s ease;
         }
         .avatar.speaking { box-shadow: 0 0 0 6px rgba(255, 110, 199, 0.45); background: #4a2342; }
         #status { font-size: 1rem; color: #f0e6f5; font-weight: 500; }
@@ -77,12 +78,12 @@
 <div class="app">
     <div class="header">
         <div class="logo">LIKODOPT</div>
-        <div class="online-badge"><span class="online-dot"></span>Онлайн P2P</div>
+        <div class="online-badge"><span class="online-dot" id="connDot"></span>Онлайн: <span id="onlineCount">0</span></div>
     </div>
 
     <div class="voice-box">
         <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Нажмите «Найти / Далее»</div>
+        <div id="status">Запрос к серверу...</div>
     </div>
 
     <div class="chat-box">
@@ -94,7 +95,7 @@
     </div>
 
     <div class="controls">
-        <button class="btn" id="btnNext">Найти / Далее</button>
+        <button class="btn" id="btnNext" disabled>Найти / Далее</button>
         <button class="btn" id="btnStop" disabled>Стоп</button>
         <button class="btn" id="btnMute" disabled>Выключить микрофон</button>
     </div>
@@ -104,6 +105,8 @@
 
 <script>
     const statusEl = document.getElementById('status');
+    const onlineCountEl = document.getElementById('onlineCount');
+    const connDot = document.getElementById('connDot');
     const partnerAvatar = document.getElementById('partnerAvatar');
     const messagesEl = document.getElementById('messages');
     const chatForm = document.getElementById('chatForm');
@@ -114,180 +117,106 @@
     const btnMute = document.getElementById('btnMute');
     const remoteAudio = document.getElementById('remoteAudio');
 
-    const peerConfig = {
-        config: {
-            iceServers: [
-                { urls: 'stun:://google.com' },
-                { urls: 'stun:://google.com' }
-            ]
-        }
+    const myId = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let isConnected = false;
+    let localStream = null;
+    let peerConnection = null;
+    let isMuted = false;
+
+    const rtcConfig = {
+        iceServers: [
+            { urls: 'stun:://google.com' },
+            { urls: 'stun:://google.com' },
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        ]
     };
 
-    let peer = null;
-    let currentCall = null;
-    let dataConn = null;
-    let localStream = null;
-    let isMuted = false;
-    let isSearching = false;
-    let currentSlot = 0;
-
-    function addMessage(text, type) {
-        const div = document.createElement('div');
-        div.className = 'msg ' + type;
-        div.textContent = text;
-        messagesEl.appendChild(div);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    function setChatEnabled(enabled) {
-        msgInput.disabled = !enabled;
-        btnSend.disabled = !enabled;
-        if (!enabled) msgInput.value = '';
-    }
-
-    async function initAudio() {
-        if (!localStream) {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                btnMute.disabled = false;
-            } catch (err) {
-                statusEl.textContent = 'Разрешите доступ к микрофону!';
-                throw err;
-            }
+    async function apiGet(path, params = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const query = new URLSearchParams({ id: myId, t: Date.now(), ...params }).toString();
+        try {
+            const res = await fetch(path + '?' + query, { signal: controller.signal });
+            return await res.json();
+        } finally {
+            clearTimeout(timer);
         }
     }
 
-    function cleanupConnection() {
-        isSearching = false;
-        partnerAvatar.classList.remove('speaking');
-        setChatEnabled(false);
-        if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
-        if (dataConn) { try { dataConn.close(); } catch(e){} dataConn = null; }
-        if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
-        remoteAudio.srcObject = null;
-    }
-
-    function onPartnerConnected() {
-        isSearching = false;
-        statusEl.textContent = 'Собеседник на связи!';
-        messagesEl.innerHTML = '';
-        addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
-        partnerAvatar.classList.add('speaking');
-        setChatEnabled(true);
-    }
-
-    function setupCallEvents(call) {
-        currentCall = call;
-        call.on('stream', (remoteStream) => {
-            onPartnerConnected();
-            remoteAudio.srcObject = remoteStream;
-            remoteAudio.play().catch(() => {});
+    async function apiPost(path, body = {}) {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: myId, ...body })
         });
-        call.on('close', () => {
-            cleanupConnection();
+        return res.json();
+    }
+
+    async function pollLoop() {
+        try {
+            const data = await apiGet('/api/poll');
+            if (!isConnected) {
+                isConnected = true;
+                connDot.classList.add('connected');
+                btnNext.disabled = false;
+                statusEl.textContent = 'Нажмите «Найти / Далее»';
+            }
+            onlineCountEl.textContent = data.online;
+            for (const ev of data.events) {
+                await handleEvent(ev);
+            }
+        } catch (e) {
+            isConnected = false;
+            connDot.classList.remove('connected');
+            statusEl.textContent = 'Переподключение...';
+        }
+        setTimeout(pollLoop, 1000);
+    }
+
+    async function handleEvent(data) {
+        if (data.type === 'waiting') {
+            statusEl.textContent = 'Поиск собеседника...';
+            addMessage('Ожидание свободного собеседника...', 'sys');
+        } else if (data.type === 'partner_found') {
+            statusEl.textContent = 'Собеседник на связи!';
+            messagesEl.innerHTML = '';
+            addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
+            setChatEnabled(true);
+            createPeerConnection();
+
+            if (data.initiator) {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                await apiPost('/api/signal', { signal: { type: 'offer', offer } });
+            }
+        } else if (data.type === 'signal') {
+            if (!peerConnection) return;
+            const sig = data.signal;
+            if (sig.type === 'offer') {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                await apiPost('/api/signal', { signal: { type: 'answer', answer } });
+            } else if (sig.type === 'answer') {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.answer));
+            } else if (sig.type === 'candidate') {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(sig.candidate));
+            }
+        } else if (data.type === 'chat_message') {
+            addMessage(data.text, 'partner');
+        } else if (data.type === 'partner_disconnected') {
+            closeCall();
             statusEl.textContent = 'Собеседник отключился';
             addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
-        });
+        }
     }
-
-    function setupDataEvents(conn) {
-        dataConn = conn;
-        conn.on('open', () => {
-            onPartnerConnected();
-        });
-        conn.on('data', (data) => {
-            if (typeof data === 'string') addMessage(data, 'partner');
-        });
-        conn.on('close', () => {
-            cleanupConnection();
-            statusEl.textContent = 'Собеседник отключился';
-            addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
-        });
-    }
-
-    // Последовательный поиск по порядку: 0, 1, 2, 3...
-    function trySlot(slotIndex) {
-        if (!isSearching) return;
-        const roomId = 'likodopt-queue-room-' + slotIndex;
-        const tempPeer = new Peer(roomId, peerConfig);
-
-        tempPeer.on('open', () => {
-            // Слот свободен — мы становимся в ожидание в этот слот!
-            peer = tempPeer;
-            statusEl.textContent = 'Ожидание собеседника...';
-            addMessage('Вы в очереди (слот #' + (slotIndex + 1) + '). Ждем собеседника...', 'sys');
-
-            peer.on('call', (incomingCall) => {
-                if (!isSearching) { incomingCall.close(); return; }
-                incomingCall.answer(localStream);
-                setupCallEvents(incomingCall);
-            });
-
-            peer.on('connection', (incomingConn) => {
-                if (!isSearching) { incomingConn.close(); return; }
-                setupDataEvents(incomingConn);
-            });
-        });
-
-        tempPeer.on('error', (err) => {
-            tempPeer.destroy();
-            if (!isSearching) return;
-
-            if (err.type === 'unavailable-id') {
-                // В этом слоте уже ждет живой человек! Звоним ему напрямую
-                statusEl.textContent = 'Подключаемся к собеседнику...';
-                const callerPeer = new Peer(peerConfig);
-peer = callerPeer;
-callerPeer.on('open', () => {
-const conn = callerPeer.connect(roomId, { reliable: true });
-const call = callerPeer.call(roomId, localStream);
-setupDataEvents(conn);
-setupCallEvents(call);
-// Если человек в слоте уже занят кем-то другим (не ответил за 3 сек), идем в следующий слот
-setTimeout(() => {
-if (isSearching && (!dataConn || !dataConn.open)) {
-callerPeer.destroy();
-trySlot(slotIndex + 1);
-}
-}, 3000);
-});
-callerPeer.on('error', () => {
-if (isSearching) trySlot(slotIndex + 1);
-});
-} else {
-statusEl.textContent = 'Ошибка сети P2P (' + err.type + '). Проверьте VPN.';
-}
-});
-}
-btnNext.addEventListener('click', async () => {
-await initAudio();
-cleanupConnection();
-isSearching = true;
-btnStop.disabled = false;
-messagesEl.innerHTML = '';
-statusEl.textContent = 'Поиск собеседника...';
-trySlot(0);
-});
-btnStop.addEventListener('click', () => {
-cleanupConnection();
-btnStop.disabled = true;
-statusEl.textContent = 'Поиск остановлен';
-addMessage('Вы завершили диалог', 'sys');
-});
-btnMute.addEventListener('click', () => {
-if (!localStream) return;
-isMuted = !isMuted;
-localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
-btnMute.classList.toggle('muted', isMuted);
-});
-chatForm.addEventListener('submit', (e) => {
-e.preventDefault();
-const text = msgInput.value.trim();
-if (!text || !dataConn || !dataConn.open) return;
-addMessage(text, 'me');
-dataConn.send(text);
-msgInput.value = '';
-});
-
 
