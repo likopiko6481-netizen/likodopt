@@ -4,7 +4,10 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: { origin: "*" },
+    transports: ['websocket', 'polling']
+});
 
 const HTML_PAGE = `<!DOCTYPE html>
 <html lang="ru">
@@ -51,14 +54,20 @@ const HTML_PAGE = `<!DOCTYPE html>
             border-radius: 20px;
             font-size: 0.85rem;
             color: #a0aab8;
+            display: flex;
+            align-items: center;
         }
         .online-dot {
             display: inline-block;
             width: 8px;
             height: 8px;
-            background: #00e676;
+            background: #ff5252;
             border-radius: 50%;
             margin-right: 6px;
+            transition: background 0.3s;
+        }
+        .online-dot.connected {
+            background: #00e676;
         }
         .voice-box {
             background: #12141a;
@@ -111,7 +120,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         .msg { padding: 8px 12px; border-radius: 10px; max-width: 82%; word-wrap: break-word; }
         .msg.me { background: #00e676; color: #000; align-self: flex-end; font-weight: 500; }
         .msg.partner { background: #262b38; color: #fff; align-self: flex-start; }
-        .msg.sys { background: transparent; color: #788292; align-self: center; font-size: 0.8rem; }
+        .msg.sys { background: transparent; color: #788292; align-self: center; font-size: 0.8rem; text-align: center; }
         .chat-input {
             display: flex;
             border-top: 1px solid #222630;
@@ -166,12 +175,12 @@ const HTML_PAGE = `<!DOCTYPE html>
 <div class="app">
     <div class="header">
         <div class="logo">LIKODOPT</div>
-        <div class="online-badge"><span class="online-dot"></span>Онлайн: <span id="onlineCount">1</span></div>
+        <div class="online-badge"><span class="online-dot" id="connDot"></span>Онлайн: <span id="onlineCount">0</span></div>
     </div>
 
     <div class="voice-box">
         <div class="avatar" id="partnerAvatar">🎙️</div>
-        <div id="status">Нажмите «Найти собеседника»</div>
+        <div id="status">Подключение к серверу...</div>
     </div>
 
     <div class="chat-box">
@@ -183,19 +192,23 @@ const HTML_PAGE = `<!DOCTYPE html>
     </div>
 
     <div class="controls">
-        <button class="btn" id="btnNext">Найти / Далее</button>
+        <button class="btn" id="btnNext" disabled>Найти / Далее</button>
         <button class="btn" id="btnStop" disabled>Стоп</button>
         <button class="btn" id="btnMute" disabled>Выключить микрофон</button>
     </div>
 
-    <audio id="remoteAudio" autoplay></audio>
+    <audio id="remoteAudio" autoplay playsinline></audio>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    const socket = io();
+    const socket = io({
+        transports: ['websocket', 'polling']
+    });
+
     const statusEl = document.getElementById('status');
     const onlineCountEl = document.getElementById('onlineCount');
+    const connDot = document.getElementById('connDot');
     const partnerAvatar = document.getElementById('partnerAvatar');
     const messagesEl = document.getElementById('messages');
     const chatForm = document.getElementById('chatForm');
@@ -215,9 +228,24 @@ const HTML_PAGE = `<!DOCTYPE html>
     const rtcConfig = {
         iceServers: [
             { urls: 'stun:://google.com' },
+            { urls: 'stun:://google.com' },
             { urls: 'stun:://google.com' }
         ]
     };
+
+    socket.on('connect', () => {
+        connDot.classList.add('connected');
+        btnNext.disabled = false;
+        statusEl.textContent = 'Нажмите «Найти / Далее»';
+    });
+
+    socket.on('disconnect', () => {
+        connDot.classList.remove('connected');
+        btnNext.disabled = true;
+        btnStop.disabled = true;
+        statusEl.textContent = 'Переподключение к серверу...';
+        closeCall();
+    });
 
     function addMessage(text, type) {
         const div = document.createElement('div');
@@ -242,7 +270,8 @@ const HTML_PAGE = `<!DOCTYPE html>
                 });
                 btnMute.disabled = false;
             } catch (err) {
-                statusEl.textContent = 'Нет доступа к микрофону!';
+                statusEl.textContent = 'Разрешите доступ к микрофону в браузере!';
+                addMessage('Ошибка: браузер заблокировал микрофон', 'sys');
                 throw err;
             }
         }
@@ -274,45 +303,44 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     function stopVoiceDetector() {
         if (analyserInterval) clearInterval(analyserInterval);
-        if (audioContext) audioContext.close().catch(() => {});
-        partnerAvatar.classList.remove('speaking');
-    }
-
-    function createPeerConnection() {
-        peerConnection = new RTCPeerConnection(rtcConfig);
-
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
-
-        peerConnection.ontrack = (event) => {
-            remoteAudio.srcObject = event.streams[0];
-            startVoiceDetector(event.streams[0]);
-        };
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                socket.emit('signal', { type: 'candidate', candidate: event.candidate });
-            }
-        };
-    }
-
-    function closeCall() {
-        stopVoiceDetector();
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-        remoteAudio.srcObject = null;
-        setChatEnabled(false);
-    }
-
-    btnNext.addEventListener('click', async () => {
 Use code with caution.
+if (audioContext) audioContext.close().catch(() => {});
+partnerAvatar.classList.remove('speaking');
+}
+function createPeerConnection() {
+peerConnection = new RTCPeerConnection(rtcConfig);
+localStream.getTracks().forEach(track => {
+peerConnection.addTrack(track, localStream);
+});
+peerConnection.ontrack = (event) => {
+const stream = event.streams[0];
+if (stream) {
+remoteAudio.srcObject = stream;
+remoteAudio.play().catch(() => {});
+startVoiceDetector(stream);
+}
+};
+peerConnection.onicecandidate = (event) => {
+if (event.candidate) {
+socket.emit('signal', { type: 'candidate', candidate: event.candidate });
+}
+};
+}
+function closeCall() {
+stopVoiceDetector();
+if (peerConnection) {
+peerConnection.close();
+peerConnection = null;
+}
+remoteAudio.srcObject = null;
+setChatEnabled(false);
+}
+btnNext.addEventListener('click', async () => {
 await initAudio();
 closeCall();
 messagesEl.innerHTML = '';
 btnStop.disabled = false;
+statusEl.textContent = 'Ищем собеседника...';
 socket.emit('find_partner');
 });
 btnStop.addEventListener('click', () => {
@@ -342,7 +370,7 @@ onlineCountEl.textContent = count;
 });
 socket.on('waiting', () => {
 statusEl.textContent = 'Поиск собеседника...';
-addMessage('Ищем свободного пользователя...', 'sys');
+addMessage('Ожидание свободного собеседника...', 'sys');
 });
 socket.on('partner_found', async ({ initiator }) => {
 statusEl.textContent = 'Собеседник на связи!';
@@ -358,6 +386,7 @@ socket.emit('signal', { type: 'offer', offer });
 });
 socket.on('signal', async (data) => {
 if (!peerConnection) return;
+try {
 if (data.type === 'offer') {
 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
 const answer = await peerConnection.createAnswer();
@@ -367,6 +396,9 @@ socket.emit('signal', { type: 'answer', answer });
 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
 } else if (data.type === 'candidate') {
 await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+}
+} catch (err) {
+console.error('Ошибка сигнала:', err);
 }
 });
 socket.on('chat_message', (text) => {
@@ -383,21 +415,29 @@ addMessage('Собеседник покинул чат. Нажмите «Дал�
 app.get('/', (req, res) => {
 res.send(HTML_PAGE);
 });
-let waitingUser = null;
+let waitingQueue = [];
 const pairs = new Map();
+function broadcastOnline() {
+io.emit('online_count', io.of('/').sockets.size);
+}
+function removeFromQueue(socketId) {
+waitingQueue = waitingQueue.filter(s => s.id !== socketId);
+}
 io.on('connection', (socket) => {
-io.emit('online_count', io.engine.clientsCount);
+broadcastOnline();
 socket.on('find_partner', () => {
 disconnectPartner(socket);
-if (waitingUser && waitingUser.id !== socket.id && waitingUser.connected) {
-const partner = waitingUser;
-waitingUser = null;
+removeFromQueue(socket.id);
+// Очищаем очередь от отключившихся пользователей
+waitingQueue = waitingQueue.filter(s => s.connected && s.id !== socket.id);
+if (waitingQueue.length > 0) {
+const partner = waitingQueue.shift();
 pairs.set(socket.id, partner.id);
 pairs.set(partner.id, socket.id);
 socket.emit('partner_found', { initiator: true });
 partner.emit('partner_found', { initiator: false });
 } else {
-waitingUser = socket;
+waitingQueue.push(socket);
 socket.emit('waiting');
 }
 });
@@ -412,13 +452,13 @@ io.to(partnerId).emit('chat_message', text.slice(0, 500));
 }
 });
 socket.on('stop', () => {
-if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+removeFromQueue(socket.id);
 disconnectPartner(socket);
 });
 socket.on('disconnect', () => {
-if (waitingUser && waitingUser.id === socket.id) waitingUser = null;
+removeFromQueue(socket.id);
 disconnectPartner(socket);
-io.emit('online_count', io.engine.clientsCount);
+broadcastOnline();
 });
 function disconnectPartner(userSocket) {
 const partnerId = pairs.get(userSocket.id);
