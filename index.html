@@ -4,25 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Likodopt — Анонимная голосовая чат-рулетка</title>
-    <script src="https://unpkg.com"></script>
     <style>
         :root {
             --bg: #0c0d12;
-            --surface: rgba(22, 24, 34, 0.88);
+            --surface: rgba(22, 24, 34, 0.84);
             --elevated: #1f2230;
             --accent: #ff6ec7;
             --accent-glow: rgba(255, 110, 199, 0.35);
             --success: #00e676;
             --danger: #ff4b5c;
             --text: #f4f4f8;
-            --muted: #8e92a4;
+            --muted: #989cb0;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: url('/bg.png') no-repeat center center fixed,
-                        url('/bg.jpg') no-repeat center center fixed,
-                        radial-gradient(circle at top, #2a1833 0%, var(--bg) 75%);
+            background: url('/background-image') no-repeat center center fixed,
+                        radial-gradient(circle at top, #361c42 0%, var(--bg) 80%);
             background-size: cover;
             color: var(--text);
             display: flex;
@@ -31,48 +29,32 @@
             min-height: 100vh;
             padding: 12px;
         }
-        /* Экран загрузки как в Incog */
-        #splash {
-            position: fixed; inset: 0; background: var(--bg); z-index: 100;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            transition: opacity 0.4s ease;
-        }
-        #splash.hidden { opacity: 0; pointer-events: none; }
-        .splash-logo {
-            width: 84px; height: 84px; border-radius: 50%; background: var(--elevated);
-            display: flex; align-items: center; justify-content: center; font-size: 2.4rem;
-            box-shadow: 0 0 30px var(--accent-glow); margin-bottom: 16px;
-        }
-        .splash-title { font-size: 1.6rem; font-weight: 800; color: var(--accent); letter-spacing: 2px; }
-        .splash-sub { font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
-
-        /* Основной контейнер */
         .app {
             background: var(--surface);
-            backdrop-filter: blur(14px);
+            backdrop-filter: blur(12px);
             width: 100%; max-width: 440px;
-            border-radius: 24px; padding: 20px;
+            border-radius: 24px; padding: 22px;
             box-shadow: 0 16px 48px rgba(0,0,0,0.75);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.12);
             display: flex; flex-direction: column; gap: 14px;
         }
         .header { display: flex; justify-content: space-between; align-items: center; }
         .brand { display: flex; align-items: center; gap: 8px; }
-        .logo { font-size: 1.35rem; font-weight: 900; color: var(--accent); letter-spacing: 1px; }
+        .logo { font-size: 1.4rem; font-weight: 900; color: var(--accent); letter-spacing: 1px; }
         .e2e-badge {
-            font-size: 0.7rem; background: rgba(0, 230, 118, 0.12); color: var(--success);
+            font-size: 0.72rem; background: rgba(0, 230, 118, 0.14); color: var(--success);
             padding: 3px 8px; border-radius: 10px; border: 1px solid rgba(0, 230, 118, 0.3);
         }
         .status-pill {
             background: var(--elevated); padding: 6px 12px; border-radius: 20px;
-            font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 6px;
+            font-size: 0.82rem; color: var(--text); display: flex; align-items: center; gap: 6px;
         }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
         .dot.on { background: var(--success); box-shadow: 0 0 8px var(--success); }
 
         .voice-card {
-            background: rgba(14, 15, 22, 0.7); border-radius: 18px; padding: 20px 15px;
-            text-align: center; border: 1px solid rgba(255,255,255,0.06);
+            background: rgba(14, 15, 22, 0.72); border-radius: 18px; padding: 22px 15px;
+            text-align: center; border: 1px solid rgba(255,255,255,0.07);
         }
         .avatar {
             width: 68px; height: 68px; border-radius: 50%; background: var(--elevated);
@@ -80,11 +62,11 @@
             font-size: 1.9rem; transition: all 0.2s ease;
         }
         .avatar.active { box-shadow: 0 0 0 6px var(--accent-glow); background: #3b1d36; }
-        #statusText { font-size: 0.95rem; font-weight: 600; color: var(--text); }
+        #statusText { font-size: 0.98rem; font-weight: 600; color: var(--text); }
 
         .chat-box {
-            background: rgba(14, 15, 22, 0.7); border-radius: 16px; height: 190px;
-            display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.06); overflow: hidden;
+            background: rgba(14, 15, 22, 0.72); border-radius: 16px; height: 190px;
+            display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.07); overflow: hidden;
         }
         #messages {
             flex: 1; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
@@ -93,7 +75,7 @@
         .msg { padding: 8px 13px; border-radius: 14px; max-width: 82%; word-wrap: break-word; line-height: 1.35; }
         .msg.me { background: var(--accent); color: #000; align-self: flex-end; font-weight: 600; border-bottom-right-radius: 4px; }
         .msg.partner { background: var(--elevated); color: var(--text); align-self: flex-start; border-bottom-left-radius: 4px; }
-        .msg.sys { background: transparent; color: var(--muted); align-self: center; font-size: 0.78rem; text-align: center; }
+        .msg.sys { background: transparent; color: var(--muted); align-self: center; font-size: 0.8rem; text-align: center; }
 
         .emoji-bar {
             display: flex; justify-content: space-around; padding: 6px;
@@ -132,24 +114,18 @@
 </head>
 <body>
 
-<div id="splash">
-    <div class="splash-logo">🎙️</div>
-    <div class="splash-title">LIKODOPT</div>
-    <div class="splash-sub">Анонимная голосовая чат-рулетка</div>
-</div>
-
 <div class="app">
     <div class="header">
         <div class="brand">
             <span class="logo">LIKODOPT</span>
             <span class="e2e-badge">🔒 E2E</span>
         </div>
-        <div class="status-pill"><span class="dot" id="netDot"></span><span id="netText">Сеть...</span></div>
+        <div class="status-pill"><span class="dot" id="netDot"></span>Онлайн: <span id="onlineCount">0</span></div>
     </div>
 
     <div class="voice-card">
         <div class="avatar" id="avatar">🎧</div>
-        <div id="statusText">Нажмите «Найти / Далее»</div>
+        <div id="statusText">Подключение к серверу...</div>
     </div>
 
     <div class="chat-box">
@@ -168,7 +144,7 @@
     </div>
 
     <div class="controls">
-        <button class="btn" id="btnNext" disabled>Найти / Далее</button>
+        <button class="btn" id="btnNext">Найти / Далее</button>
         <button class="btn" id="btnStop" disabled>Стоп</button>
         <button class="btn" id="btnMute" disabled>Выключить микрофон</button>
     </div>
@@ -177,9 +153,8 @@
 </div>
 
 <script>
-    const splash = document.getElementById('splash');
     const netDot = document.getElementById('netDot');
-    const netText = document.getElementById('netText');
+    const onlineCountEl = document.getElementById('onlineCount');
     const avatar = document.getElementById('avatar');
     const statusText = document.getElementById('statusText');
     const messages = document.getElementById('messages');
@@ -192,19 +167,11 @@
     const remoteAudio = document.getElementById('remoteAudio');
     const emojiBtns = document.querySelectorAll('.emoji-btn');
 
-    setTimeout(() => splash.classList.add('hidden'), 900);
-
-    const myId = 'lk_' + Math.random().toString(36).slice(2, 10);
-    const LOBBY_TOPIC = 'likodopt/v1/lobby';
-    const MY_TOPIC = 'likodopt/v1/user/' + myId;
-
-    let client = null;
-    let partnerId = null;
-    let state = 'idle'; // idle | searching | connected
+    const myId = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
     let localStream = null;
     let pc = null;
     let isMuted = false;
-    let searchTimer = null;
+    let isConnected = false;
 
     const rtcConfig = {
         iceServers: [
@@ -218,175 +185,48 @@
             {
                 urls: 'turn:openrelay.metered.ca:443',
                 username: 'openrelayproject',
-credential: 'openrelayproject'
-}
-]
-};
-function addMsg(text, cls) {
-const div = document.createElement('div');
-div.className = 'msg ' + cls;
-div.textContent = text;
-messages.appendChild(div);
-messages.scrollTop = messages.scrollHeight;
-}
-function setChatActive(active) {
-msgInput.disabled = !active;
-btnSend.disabled = !active;
-emojiBtns.forEach(b => b.disabled = !active);
-if (!active) msgInput.value = '';
-}
-function sendTo(targetId, payload) {
-if (client && client.connected) {
-client.publish('likodopt/v1/user/' + targetId, JSON.stringify({ from: myId, ...payload }));
-}
-}
-// Подключение к глобальному брокеру EMQX (работает в РФ без блокировок)
-function connectBroker() {
-client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
-clientId: 'likodopt_' + myId,
-clean: true,
-reconnectPeriod: 2000
-});
-client.on('connect', () => {
-netDot.classList.add('on');
-netText.textContent = 'В сети';
-btnNext.disabled = false;
-client.subscribe(MY_TOPIC);
-});
-client.on('offline', () => {
-netDot.classList.remove('on');
-netText.textContent = 'Офлайн';
-});
-client.on('message', async (topic, raw) => {
-let data;
-try { data = JSON.parse(raw.toString()); } catch (e) { return; }
-if (data.from === myId) return;
-if (topic === LOBBY_TOPIC && data.type === 'seek' && state === 'searching') {
-// Нашли свободного человека! Выбираем, кто инициирует звонок по алфавиту ID
-if (myId > data.from) {
-pairWith(data.from, true);
-sendTo(data.from, { type: 'accept' });
-}
-} else if (topic === MY_TOPIC) {
-if (data.type === 'accept' && state === 'searching') {
-pairWith(data.from, false);
-} else if (data.from === partnerId) {
-if (data.type === 'signal') await handleSignal(data.signal);
-else if (data.type === 'chat') addMsg(data.text, 'partner');
-else if (data.type === 'bye') {
-resetCall();
-statusText.textContent = 'Собеседник отключился';
-addMsg('Собеседник завершил беседу. Нажмите «Далее»', 'sys');
-}
-}
-}
-});
-}
-connectBroker();
-async function initMic() {
-if (!localStream) {
-try {
-localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-btnMute.disabled = false;
-} catch (e) {
-statusText.textContent = 'Разрешите доступ к микрофону!';
-throw e;
-}
-}
-}
-function resetCall() {
-clearInterval(searchTimer);
-if (partnerId) sendTo(partnerId, { type: 'bye' });
-partnerId = null;
-state = 'idle';
-avatar.classList.remove('active');
-setChatActive(false);
-if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-remoteAudio.srcObject = null;
-if (client) client.unsubscribe(LOBBY_TOPIC);
-}
-async function pairWith(targetId, isInitiator) {
-clearInterval(searchTimer);
-if (client) client.unsubscribe(LOBBY_TOPIC);
-partnerId = targetId;
-state = 'connected';
-statusText.textContent = 'Собеседник на связи!';
-messages.innerHTML = '';
-addMsg('🔒 Защищенное соединение установлено', 'sys');
-avatar.classList.add('active');
-setChatActive(true);
-pc = new RTCPeerConnection(rtcConfig);
-localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-pc.ontrack = (ev) => {
-const stream = new MediaStream();
-stream.addTrack(ev.track);
-remoteAudio.srcObject = stream;
-remoteAudio.play().catch(() => {});
-};
-pc.onicecandidate = (ev) => {
-if (ev.candidate) sendTo(partnerId, { type: 'signal', signal: { candidate: ev.candidate } });
-};
-if (isInitiator) {
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
-sendTo(partnerId, { type: 'signal', signal: { offer } });
-}
-}
-async function handleSignal(sig) {
-if (!pc) return;
-if (sig.offer) {
-await pc.setRemoteDescription(new RTCSessionDescription(sig.offer));
-const answer = await pc.createAnswer();
-await pc.setLocalDescription(answer);
-sendTo(partnerId, { type: 'signal', signal: { answer } });
-} else if (sig.answer) {
-await pc.setRemoteDescription(new RTCSessionDescription(sig.answer));
-} else if (sig.candidate) {
-await pc.addIceCandidate(new RTCIceCandidate(sig.candidate));
-}
-}
-btnNext.addEventListener('click', async () => {
-await initMic();
-resetCall();
-state = 'searching';
-btnStop.disabled = false;
-messages.innerHTML = '';
-statusText.textContent = 'Поиск собеседника...';
-addMsg('Ищем свободного участника в сети...', 'sys');
-client.subscribe(LOBBY_TOPIC);
-const announce = () => {
-if (state === 'searching' && client.connected) {
-client.publish(LOBBY_TOPIC, JSON.stringify({ from: myId, type: 'seek' }));
-}
-};
-announce();
-searchTimer = setInterval(announce, 1500);
-});
-btnStop.addEventListener('click', () => {
-resetCall();
-btnStop.disabled = true;
-statusText.textContent = 'Поиск остановлен';
-addMsg('Вы вышли из поиска', 'sys');
-});
-btnMute.addEventListener('click', () => {
-if (!localStream) return;
-isMuted = !isMuted;
-localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-btnMute.textContent = isMuted ? 'Включить микрофон' : 'Выключить микрофон';
-btnMute.classList.toggle('muted', isMuted);
-});
-function sendMessageText(text) {
-if (!text || state !== 'connected' || !partnerId) return;
-addMsg(text, 'me');
-sendTo(partnerId, { type: 'chat', text });
-}
-chatForm.addEventListener('submit', (e) => {
-e.preventDefault();
-const text = msgInput.value.trim();
-if (!text) return;
-sendMessageText(text);
-msgInput.value = '';
-});
-emojiBtns.forEach(btn => {
-btn.addEventListener('click', () => sendMessageText(btn.textContent));
-});
+                credential: 'openrelayproject'
+            }
+        ]
+    };
+
+    function addMsg(text, cls) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + cls;
+        div.textContent = text;
+        messages.appendChild(div);
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    function setChatActive(active) {
+        msgInput.disabled = !active;
+        btnSend.disabled = !active;
+        emojiBtns.forEach(b => b.disabled = !active);
+        if (!active) msgInput.value = '';
+    }
+
+    async function apiGet(path, params = {}) {
+        const query = new URLSearchParams({ id: myId, t: Date.now(), ...params }).toString();
+        const res = await fetch(path + '?' + query);
+        return res.json();
+    }
+
+    async function apiPost(path, body = {}) {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: myId, ...body })
+        });
+        return res.json();
+    }
+
+    async function pollLoop() {
+        try {
+            const data = await apiGet('/api/poll');
+            if (!isConnected) {
+                isConnected = true;
+                netDot.classList.add('on');
+                statusText.textContent = 'Нажмите «Найти / Далее»';
+            }
+            onlineCountEl.textContent = data.online;
+            for (const ev of data.events) {
