@@ -3,27 +3,6 @@ const path = require('path');
 
 const app = express();
 app.use(express.static(__dirname));
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f1115 url('/bg.png') no-repeat center center fixed;
-            background-size: cover;
-            color: #fff;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 15px;
-        }
-        .app {
-            background: rgba(24, 27, 34, 0.85);
-            backdrop-filter: blur(8px);
-            width: 100%;
-            max-width: 460px;
-            border-radius: 20px;
-            padding: 25px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
