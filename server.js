@@ -1,13 +1,11 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const WebSocket = require('ws');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: "*" },
-    transports: ['websocket', 'polling']
-});
+const wss = new WebSocket.Server({ server });
 
 const HTML_PAGE = `<!DOCTYPE html>
 <html lang="ru">
@@ -66,9 +64,7 @@ const HTML_PAGE = `<!DOCTYPE html>
             margin-right: 6px;
             transition: background 0.3s;
         }
-        .online-dot.connected {
-            background: #00e676;
-        }
+        .online-dot.connected { background: #00e676; }
         .voice-box {
             background: #12141a;
             border-radius: 16px;
@@ -200,12 +196,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <audio id="remoteAudio" autoplay playsinline></audio>
 </div>
 
-<script src="/socket.io/socket.io.js"></script>
 <script>
-    const socket = io({
-        transports: ['websocket', 'polling']
-    });
-
     const statusEl = document.getElementById('status');
     const onlineCountEl = document.getElementById('onlineCount');
     const connDot = document.getElementById('connDot');
@@ -219,6 +210,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     const btnMute = document.getElementById('btnMute');
     const remoteAudio = document.getElementById('remoteAudio');
 
+    let ws = null;
     let localStream = null;
     let peerConnection = null;
     let isMuted = false;
@@ -228,90 +220,139 @@ const HTML_PAGE = `<!DOCTYPE html>
     const rtcConfig = {
         iceServers: [
             { urls: 'stun:://google.com' },
-            { urls: 'stun:://google.com' },
             { urls: 'stun:://google.com' }
         ]
     };
 
-    socket.on('connect', () => {
-        connDot.classList.add('connected');
-        btnNext.disabled = false;
-        statusEl.textContent = 'Нажмите «Найти / Далее»';
-    });
-
-    socket.on('disconnect', () => {
-        connDot.classList.remove('connected');
-        btnNext.disabled = true;
-        btnStop.disabled = true;
-        statusEl.textContent = 'Переподключение к серверу...';
-        closeCall();
-    });
-
-    function addMessage(text, type) {
-        const div = document.createElement('div');
-        div.className = 'msg ' + type;
-        div.textContent = text;
-        messagesEl.appendChild(div);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    function setChatEnabled(enabled) {
-        msgInput.disabled = !enabled;
-        btnSend.disabled = !enabled;
-        if (!enabled) msgInput.value = '';
-    }
-
-    async function initAudio() {
-        if (!localStream) {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    audio: { echoCancellation: true, noiseSuppression: true },
-                    video: false
-                });
-                btnMute.disabled = false;
-            } catch (err) {
-                statusEl.textContent = 'Разрешите доступ к микрофону в браузере!';
-                addMessage('Ошибка: браузер заблокировал микрофон', 'sys');
-                throw err;
-            }
+    function sendWS(type, payload = {}) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type, ...payload }));
         }
     }
 
-    function startVoiceDetector(stream) {
-        stopVoiceDetector();
-        try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioContext.createMediaStreamSource(stream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-            const data = new Uint8Array(analyser.frequencyBinCount);
+    function connectWS() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(protocol + '//' + window.location.host);
 
-            analyserInterval = setInterval(() => {
-                analyser.getByteFrequencyData(data);
-                let sum = 0;
-                for (let i = 0; i < data.length; i++) sum += data[i];
-                const avg = sum / data.length;
-                if (avg > 12) {
-                    partnerAvatar.classList.add('speaking');
-                } else {
-                    partnerAvatar.classList.remove('speaking');
+        ws.onopen = () => {
+            connDot.classList.add('connected');
+            btnNext.disabled = false;
+            statusEl.textContent = 'Нажмите «Найти / Далее»';
+        };
+
+        ws.onclose = () => {
+            connDot.classList.remove('connected');
+            btnNext.disabled = true;
+            btnStop.disabled = true;
+            statusEl.textContent = 'Переподключение...';
+            closeCall();
+            setTimeout(connectWS, 2000);
+        };
+
+        ws.onerror = () => {
+            statusEl.textContent = 'Ошибка WebSocket. Проверьте интернет/VPN.';
+        };
+
+        ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'online_count') {
+                onlineCountEl.textContent = data.count;
+            } else if (data.type === 'waiting') {
+                statusEl.textContent = 'Поиск собеседника...';
+                addMessage('Ожидание свободного собеседника...', 'sys');
+            } else if (data.type === 'partner_found') {
+                statusEl.textContent = 'Собеседник на связи!';
+                messagesEl.innerHTML = '';
+                addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
+                setChatEnabled(true);
+                createPeerConnection();
+
+                if (data.initiator) {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    sendWS('signal', { signal: { type: 'offer', offer } });
                 }
-            }, 100);
-        } catch (e) {}
-    }
-
-    function stopVoiceDetector() {
-        if (analyserInterval) clearInterval(analyserInterval);
+            } else if (data.type === 'signal') {
+                if (!peerConnection) return;
+                const sig = data.signal;
+                if (sig.type === 'offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    sendWS('signal', { signal: { type: 'answer', answer } });
+                } else if (sig.type === 'answer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(sig.answer));
+                } else if (sig.type === 'candidate') {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(sig.candidate));
 Use code with caution.
+}
+} else if (data.type === 'chat_message') {
+addMessage(data.text, 'partner');
+} else if (data.type === 'partner_disconnected') {
+closeCall();
+statusEl.textContent = 'Собеседник отключился';
+addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
+}
+};
+}
+connectWS();
+function addMessage(text, type) {
+const div = document.createElement('div');
+div.className = 'msg ' + type;
+div.textContent = text;
+messagesEl.appendChild(div);
+messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function setChatEnabled(enabled) {
+msgInput.disabled = !enabled;
+btnSend.disabled = !enabled;
+if (!enabled) msgInput.value = '';
+}
+async function initAudio() {
+if (!localStream) {
+try {
+localStream = await navigator.mediaDevices.getUserMedia({
+audio: { echoCancellation: true, noiseSuppression: true },
+video: false
+});
+btnMute.disabled = false;
+} catch (err) {
+statusEl.textContent = 'Разрешите доступ к микрофону!';
+addMessage('Ошибка: браузер заблокировал микрофон', 'sys');
+throw err;
+}
+}
+}
+function startVoiceDetector(stream) {
+stopVoiceDetector();
+try {
+audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const source = audioContext.createMediaStreamSource(stream);
+const analyser = audioContext.createAnalyser();
+analyser.fftSize = 256;
+source.connect(analyser);
+const data = new Uint8Array(analyser.frequencyBinCount);
+analyserInterval = setInterval(() => {
+analyser.getByteFrequencyData(data);
+let sum = 0;
+for (let i = 0; i < data.length; i++) sum += data[i];
+if ((sum / data.length) > 12) {
+partnerAvatar.classList.add('speaking');
+} else {
+partnerAvatar.classList.remove('speaking');
+}
+}, 100);
+} catch (e) {}
+}
+function stopVoiceDetector() {
+if (analyserInterval) clearInterval(analyserInterval);
 if (audioContext) audioContext.close().catch(() => {});
 partnerAvatar.classList.remove('speaking');
 }
 function createPeerConnection() {
 peerConnection = new RTCPeerConnection(rtcConfig);
-localStream.getTracks().forEach(track => {
-peerConnection.addTrack(track, localStream);
-});
+localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 peerConnection.ontrack = (event) => {
 const stream = event.streams[0];
 if (stream) {
@@ -322,7 +363,7 @@ startVoiceDetector(stream);
 };
 peerConnection.onicecandidate = (event) => {
 if (event.candidate) {
-socket.emit('signal', { type: 'candidate', candidate: event.candidate });
+sendWS('signal', { signal: { type: 'candidate', candidate: event.candidate } });
 }
 };
 }
@@ -341,11 +382,11 @@ closeCall();
 messagesEl.innerHTML = '';
 btnStop.disabled = false;
 statusEl.textContent = 'Ищем собеседника...';
-socket.emit('find_partner');
+sendWS('find_partner');
 });
 btnStop.addEventListener('click', () => {
 closeCall();
-socket.emit('stop');
+sendWS('stop');
 btnStop.disabled = true;
 statusEl.textContent = 'Поиск остановлен';
 addMessage('Вы завершили диалог', 'sys');
@@ -362,52 +403,8 @@ e.preventDefault();
 const text = msgInput.value.trim();
 if (!text) return;
 addMessage(text, 'me');
-socket.emit('chat_message', text);
+sendWS('chat_message', { text });
 msgInput.value = '';
-});
-socket.on('online_count', (count) => {
-onlineCountEl.textContent = count;
-});
-socket.on('waiting', () => {
-statusEl.textContent = 'Поиск собеседника...';
-addMessage('Ожидание свободного собеседника...', 'sys');
-});
-socket.on('partner_found', async ({ initiator }) => {
-statusEl.textContent = 'Собеседник на связи!';
-messagesEl.innerHTML = '';
-addMessage('Соединение установлено. Поздоровайтесь!', 'sys');
-setChatEnabled(true);
-createPeerConnection();
-if (initiator) {
-const offer = await peerConnection.createOffer();
-await peerConnection.setLocalDescription(offer);
-socket.emit('signal', { type: 'offer', offer });
-}
-});
-socket.on('signal', async (data) => {
-if (!peerConnection) return;
-try {
-if (data.type === 'offer') {
-await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-const answer = await peerConnection.createAnswer();
-await peerConnection.setLocalDescription(answer);
-socket.emit('signal', { type: 'answer', answer });
-} else if (data.type === 'answer') {
-await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-} else if (data.type === 'candidate') {
-await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-}
-} catch (err) {
-console.error('Ошибка сигнала:', err);
-}
-});
-socket.on('chat_message', (text) => {
-addMessage(text, 'partner');
-});
-socket.on('partner_disconnected', () => {
-closeCall();
-statusEl.textContent = 'Собеседник отключился';
-addMessage('Собеседник покинул чат. Нажмите «Далее»', 'sys');
 });
 
 
@@ -417,59 +414,85 @@ res.send(HTML_PAGE);
 });
 let waitingQueue = [];
 const pairs = new Map();
+const clients = new Map();
+function sendJSON(ws, obj) {
+if (ws && ws.readyState === WebSocket.OPEN) {
+ws.send(JSON.stringify(obj));
+}
+}
 function broadcastOnline() {
-io.emit('online_count', io.of('/').sockets.size);
+const count = clients.size;
+for (const client of clients.values()) {
+sendJSON(client, { type: 'online_count', count });
 }
-function removeFromQueue(socketId) {
-waitingQueue = waitingQueue.filter(s => s.id !== socketId);
 }
-io.on('connection', (socket) => {
-broadcastOnline();
-socket.on('find_partner', () => {
-disconnectPartner(socket);
-removeFromQueue(socket.id);
-// Очищаем очередь от отключившихся пользователей
-waitingQueue = waitingQueue.filter(s => s.connected && s.id !== socket.id);
-if (waitingQueue.length > 0) {
-const partner = waitingQueue.shift();
-pairs.set(socket.id, partner.id);
-pairs.set(partner.id, socket.id);
-socket.emit('partner_found', { initiator: true });
-partner.emit('partner_found', { initiator: false });
-} else {
-waitingQueue.push(socket);
-socket.emit('waiting');
+function removeFromQueue(id) {
+waitingQueue = waitingQueue.filter(cid => cid !== id);
 }
-});
-socket.on('signal', (data) => {
-const partnerId = pairs.get(socket.id);
-if (partnerId) io.to(partnerId).emit('signal', data);
-});
-socket.on('chat_message', (text) => {
-const partnerId = pairs.get(socket.id);
-if (partnerId && typeof text === 'string') {
-io.to(partnerId).emit('chat_message', text.slice(0, 500));
-}
-});
-socket.on('stop', () => {
-removeFromQueue(socket.id);
-disconnectPartner(socket);
-});
-socket.on('disconnect', () => {
-removeFromQueue(socket.id);
-disconnectPartner(socket);
-broadcastOnline();
-});
-function disconnectPartner(userSocket) {
-const partnerId = pairs.get(userSocket.id);
+function disconnectPartner(id) {
+const partnerId = pairs.get(id);
 if (partnerId) {
-pairs.delete(userSocket.id);
+pairs.delete(id);
 pairs.delete(partnerId);
-io.to(partnerId).emit('partner_disconnected');
+sendJSON(clients.get(partnerId), { type: 'partner_disconnected' });
 }
 }
+wss.on('connection', (ws) => {
+const id = crypto.randomUUID();
+clients.set(id, ws);
+broadcastOnline();
+// Пинг каждые 25 секунд, чтобы Render не разрывал соединение
+const pingInterval = setInterval(() => {
+if (ws.readyState === WebSocket.OPEN) ws.ping();
+}, 25000);
+ws.on('message', (raw) => {
+let data;
+try { data = JSON.parse(raw); } catch (e) { return; }
+if (data.type === 'find_partner') {
+disconnectPartner(id);
+removeFromQueue(id);
+waitingQueue = waitingQueue.filter(cid => clients.has(cid) && cid !== id);
+if (waitingQueue.length > 0) {
+const partnerId = waitingQueue.shift();
+pairs.set(id, partnerId);
+pairs.set(partnerId, id);
+sendJSON(ws, { type: 'partner_found', initiator: true });
+sendJSON(clients.get(partnerId), { type: 'partner_found', initiator: false });
+} else {
+waitingQueue.push(id);
+sendJSON(ws, { type: 'waiting' });
+}
+} else if (data.type === 'signal') {
+const partnerId = pairs.get(id);
+if (partnerId) sendJSON(clients.get(partnerId), { type: 'signal', signal: data.signal });
+} else if (data.type === 'chat_message') {
+const partnerId = pairs.get(id);
+if (partnerId && typeof data.text === 'string') {
+sendJSON(clients.get(partnerId), { type: 'chat_message', text: data.text.slice(0, 500) });
+}
+} else if (data.type === 'stop') {
+removeFromQueue(id);
+disconnectPartner(id);
+}
+});
+ws.on('close', () => {
+clearInterval(pingInterval);
+clients.delete(id);
+removeFromQueue(id);
+disconnectPartner(id);
+broadcastOnline();
+});
 });
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
 console.log('Likodopt запущен на порту ' + PORT);
 });
+
+### Что исправлено в этой версии:
+* **Убран внешний клиентский скрипт Socket.io** — браузер подключается напрямую по стандартному протоколу `wss://` к вашему сайту `https://likodopt-5.onrender.com`, поэтому соединение устанавливается мгновенно.
+* **Добавлен автоматический `ping` каждые 25 секунд** — бесплатный балансировщик Render не будет обрывать связь во время молчания.
+* **Исправлена передача аудиопотока (`event.streams[0]`)** и кнопка отключения микрофона (`getAudioTracks()[0]`).
+
+<FollowUp>
+Обновите **package.json** и **server.js** на GitHub — заработал ли теперь зеленый индикатор **«Онлайн: 1»** на странице `https://likodopt-5.onrender.com`?
+</FollowUp>
